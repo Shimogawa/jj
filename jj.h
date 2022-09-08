@@ -14,22 +14,22 @@ typedef struct hashmap hashmap;
 
 typedef uint16_t jj_valtype;
 
-typedef int64_t json_val_int;
-typedef char* json_val_str;
-typedef long double json_val_float;
-typedef bool json_val_bool;
+typedef int64_t jj_jsontype_int;
+typedef char *jj_jsontype_str;
+typedef long double jj_jsontype_float;
+typedef bool jj_jsontype_bool;
 
-#define JSON_NULL NULL
-#define JSON_TRUE true
-#define JSON_FALSE false
+#define JJ_JSON_NULL  NULL
+#define JJ_JSON_TRUE  true
+#define JJ_JSON_FALSE false
 
-#define JJ_VALTYPE_NULL 114514
-#define JJ_VALTYPE_OBJ 1
-#define JJ_VALTYPE_ARR 2
-#define JJ_VALTYPE_INT 3
+#define JJ_VALTYPE_NULL  114514
+#define JJ_VALTYPE_OBJ   1
+#define JJ_VALTYPE_ARR   2
+#define JJ_VALTYPE_INT   3
 #define JJ_VALTYPE_FLOAT 4
-#define JJ_VALTYPE_BOOL 5
-#define JJ_VALTYPE_STR 6
+#define JJ_VALTYPE_BOOL  5
+#define JJ_VALTYPE_STR   6
 
 typedef union _jsondata;
 
@@ -39,47 +39,49 @@ typedef struct _jsonobj;
 typedef struct _jsonarrdata {
     uint32_t length;
     uint32_t cap;
-    struct _jsonobj* arr;
+    struct _jsonobj *arr;
 } jj_jsonarrdata;
 
 typedef union _jsondata {
-    json_val_int intval;
-    json_val_str strval;
-    json_val_float floatval;
-    json_val_bool boolval;
-    hashmap* objval;
-    struct _jsonarrdata* arrval;
+    jj_jsontype_int intval;
+    jj_jsontype_str strval;
+    jj_jsontype_float floatval;
+    jj_jsontype_bool boolval;
+    hashmap *objval;
+    struct _jsonarrdata *arrval;
 } jj_jsondata;
 
 typedef struct _jsonobj {
     jj_valtype type;
-    char* name;
+    char *name;
 
     union _jsondata data;
 } jj_jsonobj;
 
-uint64_t __jj_hash_func(const void* item, uint64_t seed0, uint64_t seed1) {
-    const jj_jsonobj* j = (const jj_jsonobj*)item;
+uint64_t _jj_hash_func(const void *item, uint64_t seed0, uint64_t seed1) {
+    const jj_jsonobj *j = (const jj_jsonobj *)item;
     return hashmap_sip(j->name, strlen(j->name), seed0, seed1);
 }
 
-int __jj_comp_func(const void* a, const void* b, void* udata) { return a - b; }
-
-inline hashmap* __jj_new_hashmap() {
-    return hashmap_new(sizeof(jj_jsonobj), 0, 0, 0, __jj_hash_func,
-                       __jj_comp_func, NULL, NULL);
+int _jj_comp_func(const void *a, const void *b, void *udata) {
+    return (int)((size_t)a - (size_t)b);
 }
 
-inline void __jj_hashmap_free(hashmap* map) { hashmap_free(map); }
+inline hashmap *_jj_new_hashmap() {
+    return hashmap_new(sizeof(jj_jsonobj), 0, 0, 0, _jj_hash_func,
+                       _jj_comp_func, NULL, NULL);
+}
 
-inline void __jj_arrfree(jj_jsonarrdata* arr) {
+inline void _jj_hashmap_free(hashmap *map) { hashmap_free(map); }
+
+inline void _jj_arrfree(jj_jsonarrdata *arr) {
     jj_free(arr->arr);
     jj_free(arr);
 }
 
-inline int __jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
+inline int _jj_arrappend(jj_jsonarrdata *arr, jj_jsonobj *obj) {
     if (arr->length + 1 >= arr->cap) {
-        if (__jj_arrresize(arr, (arr->length + 1) << 1) != 0) {
+        if (_jj_arrresize(arr, (arr->length + 1) << 1) != 0) {
             return -1;
         }
     }
@@ -88,8 +90,8 @@ inline int __jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
     return 0;
 }
 
-inline int __jj_arrresize(jj_jsonarrdata* arr, size_t size) {
-    jj_jsonobj* loc = realloc(arr->arr, size * sizeof(jj_jsonobj));
+inline int _jj_arrresize(jj_jsonarrdata *arr, size_t size) {
+    jj_jsonobj *loc = realloc(arr->arr, size * sizeof(jj_jsonobj));
     if (!loc) {
         return -1;
     }
@@ -98,93 +100,156 @@ inline int __jj_arrresize(jj_jsonarrdata* arr, size_t size) {
     return 0;
 }
 
-#define __JJ_MALLOC_NEW_JSONOBJ()                              \
-    jj_jsonobj* val = (jj_jsonobj*)malloc(sizeof(jj_jsonobj)); \
-    if (!val) {                                                \
-        return NULL;                                           \
+#define _JJ_MALLOC_NEW_JSONOBJ()              \
+    (jj_jsonobj *)malloc(sizeof(jj_jsonobj)); \
+    if (!val) {                               \
+        return NULL;                          \
     }
 
-inline bool jj_is_json_root(jj_jsonobj* json) { return json->name == NULL; }
+#define _JJ_JSONOBJ_INIT_SETNAME(val, name) \
+    (val)->name = NULL;                     \
+    if (name) jj_setname((val), (name));
 
-inline bool jj_is_json_type(jj_jsonobj* json, jj_valtype type) {
+inline bool jj_is_json_root(jj_jsonobj *json) { return json->name == NULL; }
+
+inline bool jj_is_json_type(jj_jsonobj *json, jj_valtype type) {
     return json->type == type;
 }
 
-inline void jj_setname(jj_jsonobj* json, const char* name) {
+inline void jj_setname(jj_jsonobj *json, const char *name) {
     free(json->name);
+    if (!name) {
+        json->name = NULL;
+        return;
+    }
     size_t len = strlen(name);
-    char* buf = malloc(len);
+    char *buf = malloc(len);
     strcpy(buf, name);
     json->name = buf;
 }
 
-inline jj_jsonobj* jj_new_jsonbool(const char* name, bool b) {
-    __JJ_MALLOC_NEW_JSONOBJ();
+// if name is NULL then it's root
+inline jj_jsonobj *jj_new_empty_obj(const char *name) {
+    jj_jsonobj *val = _JJ_MALLOC_NEW_JSONOBJ();
+    _JJ_JSONOBJ_INIT_SETNAME(val, name);
+    return val;
+}
+
+inline jj_jsonobj *jj_new_jsonbool(const char *name, jj_jsontype_bool b) {
+    jj_jsonobj *val = jj_new_empty_obj(name);
     val->type = JJ_VALTYPE_BOOL;
     val->data.boolval = b;
     return val;
 }
 
-inline jj_jsonobj* jj_new_jsonobj(const char* name) {
-    __JJ_MALLOC_NEW_JSONOBJ();
-    val->type = JJ_VALTYPE_OBJ;
-    val->name = NULL;
-    jj_setname(val, name);
-    val->data.objval = __jj_new_hashmap();
+inline jj_jsonobj *jj_new_jsonint(const char *name, jj_jsontype_int i) {
+    jj_jsonobj *val = jj_new_empty_obj(name);
+    val->type = JJ_VALTYPE_INT;
+    val->data.intval = i;
     return val;
 }
 
-inline void jj_jsonobj_put(jj_jsonobj* obj, jj_jsonobj* val) {
+inline jj_jsonobj *jj_new_jsonfloat(const char *name, jj_jsontype_float f) {
+    jj_jsonobj *val = jj_new_empty_obj(name);
+    val->type = JJ_VALTYPE_FLOAT;
+    val->data.floatval = f;
+    return val;
+}
+
+inline jj_jsonobj *jj_new_jsonnull(const char *name) {
+    jj_jsonobj *val = jj_new_empty_obj(name);
+    val->type = JJ_VALTYPE_NULL;
+    return val;
+}
+
+inline jj_jsonobj *jj_new_jsonobj(const char *name) {
+    jj_jsonobj *val = jj_new_empty_obj(name);
+    val->type = JJ_VALTYPE_OBJ;
+    val->data.objval = _jj_new_hashmap();
+    return val;
+}
+
+inline void jj_jsonobj_put(jj_jsonobj *obj, jj_jsonobj *val) {
     if (!jj_is_json_type(obj, JJ_VALTYPE_OBJ)) {
         return;
     }
     hashmap_set(obj->data.objval, val);
 }
 
-void jj_free(jj_jsonobj* root) {
-    free(root->name);
+// don't free subelements of json structure. only free the root.
+void jj_free(jj_jsonobj *root) {
+    if (root->name) free(root->name);
     switch (root->type) {
-        case JJ_VALTYPE_INT:
-        case JJ_VALTYPE_FLOAT:
-        case JJ_VALTYPE_BOOL:
-            free(root);
-            break;
         case JJ_VALTYPE_STR:
             free(root->data.strval);
             break;
         case JJ_VALTYPE_OBJ:
-            __jj_hashmap_free(root->data.objval);
+            _jj_hashmap_free(root->data.objval);
             break;
         case JJ_VALTYPE_ARR:
-            __jj_arrfree(root->data.arrval);
+            _jj_arrfree(root->data.arrval);
             break;
         default:
             break;
     }
+    free(root);
 }
 
-typedef uint16_t __jj_token_type;
+inline jj_jsonobj *jj_oget(jj_jsonobj *obj, const char *name) {
+    if (!jj_is_json_type(obj, JJ_VALTYPE_OBJ)) {
+        return NULL;
+    }
+    return hashmap_get(obj->data.objval, &(jj_jsonobj){.name = name});
+}
 
-#define __JJ_TOKEN_INT 1001
-#define __JJ_TOKEN_FLOAT 1002
-#define __JJ_TOKEN_STR 1003
-#define __JJ_TOKEN_NULL 1004
-#define __JJ_TOKEN_INVALID 114514
+inline jj_jsonobj *jj_aget(jj_jsonobj *obj, uint32_t idx) {
+    if (!jj_is_json_type(obj, JJ_VALTYPE_ARR)) {
+        return NULL;
+    }
+    return obj->data.arrval->arr + idx;
+}
 
-typedef struct __jj_lexstate {
-    const char* original;
+// returns true if success, false if not of type bool.
+inline bool jj_ogetbool(jj_jsonobj *obj, const char *name,
+                        jj_jsontype_bool *result) {
+    jj_jsonobj *ref = jj_oget(obj, name);
+    if (!ref) {
+        return false;
+    }
+    if (!jj_is_json_type(ref, JJ_VALTYPE_BOOL)) {
+        return false;
+    }
+    *result = ref->data.boolval;
+    return true;
+}
+
+// ***************************** parsing **********************************
+
+typedef uint16_t _jj_token_type;
+
+#define _JJ_TOKEN_INT     1001
+#define _JJ_TOKEN_FLOAT   1002
+#define _JJ_TOKEN_STR     1003
+#define _JJ_TOKEN_NULL    1004
+#define _JJ_TOKEN_TRUE    1005
+#define _JJ_TOKEN_FALSE   1006
+#define _JJ_TOKEN_INVALID 114514
+#define _JJ_TOKEN_EOF     114515
+
+typedef struct _jj_lexstate {
+    const char *original;
     const uint32_t length;
 
     size_t cur_idx;
     size_t line;
     size_t col;
-    char* strbuf;
+    char *strbuf;
     size_t buflen;
     size_t bufcap;
-    __jj_token_type curtoken;
-} __jj_lexstate;
+    _jj_token_type curtoken;
+} _jj_lexstate;
 
-inline bool __jj_is_char_oneof(__jj_token_type c, const char* chars) {
+inline bool _jj_is_char_oneof(_jj_token_type c, const char *chars) {
     if (c > 255) {
         return false;
     }
@@ -200,7 +265,7 @@ inline bool __jj_is_char_oneof(__jj_token_type c, const char* chars) {
 }
 
 // c cannot be NULL char (0).
-inline bool __jj_str_contains_s(const char* s, size_t len, char c) {
+inline bool _jj_str_contains_s(const char *s, size_t len, char c) {
     if (c == 0) {
         return false;
     }
@@ -215,8 +280,8 @@ inline bool __jj_str_contains_s(const char* s, size_t len, char c) {
     return false;
 }
 
-inline __jj_lexstate* __jj_new_lexstate() {
-    __jj_lexstate* s = malloc(sizeof(__jj_lexstate));
+inline _jj_lexstate *_jj_new_lexstate() {
+    _jj_lexstate *s = malloc(sizeof(_jj_lexstate));
     if (!s) {
         return NULL;
     }
@@ -230,20 +295,20 @@ inline __jj_lexstate* __jj_new_lexstate() {
     return s;
 }
 
-inline void __jj_free_lexstate(__jj_lexstate* s) {
+inline void _jj_free_lexstate(_jj_lexstate *s) {
     free(s->strbuf);
     free(s);
 }
 
-inline void __jj_lexstate_nextchar(__jj_lexstate* s) {
+inline void _jj_lexstate_nextchar(_jj_lexstate *s) {
     s->cur_idx++;
     s->col++;
 }
 
-inline void __jj_lexstate_resize_strbuf(__jj_lexstate* s) {
+inline void _jj_lexstate_resize_strbuf(_jj_lexstate *s) {
     if (s->buflen + 1 >= s->bufcap) {
         size_t cap = (s->buflen + 1) << 1;
-        char* new = realloc(s->strbuf, cap);
+        char *new = realloc(s->strbuf, cap);
         if (!new) {
             exit(1145141919810ULL);
         }
@@ -252,22 +317,22 @@ inline void __jj_lexstate_resize_strbuf(__jj_lexstate* s) {
     }
 }
 
-inline void __jj_lexstate_reset_strbuf(__jj_lexstate* s) { s->buflen = 0; }
+inline void __jj_lexstate_reset_strbuf(_jj_lexstate *s) { s->buflen = 0; }
 
-inline void __jj_lexstate_err(__jj_lexstate* s) {
+inline void _jj_lexstate_err(_jj_lexstate *s) {
     if (s->curtoken < 256) {
         fprintf(stderr, "Invalid char '%c' at line %d col %d\n", s->curtoken,
                 s->line, s->col);
         return;
     }
-    __jj_lexstate_resize_strbuf(s);
+    _jj_lexstate_resize_strbuf(s);
     s->strbuf[s->buflen] = '\0';
     s->buflen++;
     fprintf(stderr, "Invalid token '%s' at line %d col %d\n", s->strbuf,
             s->line, s->col);
 }
 
-void __jj_lex_next(__jj_lexstate* state);
-jj_jsonobj* jj_parse(const char* json_str);
+void _jj_lex_next(_jj_lexstate *state);
+jj_jsonobj *jj_parse(const char *json_str);
 
 #endif  // JJ_H
