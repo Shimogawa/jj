@@ -1,1 +1,5 @@
 .vscode/
+*.gch
+*.ilk
+*.exe
+*.pdb
