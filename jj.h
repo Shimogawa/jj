@@ -1,5 +1,3 @@
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "bugprone-reserved-identifier"
 #ifndef JJ_H
 #define JJ_H
 
@@ -285,4 +283,3 @@ void _jj_lex_next(_jj_lexstate* state);
 jj_jsonobj* jj_parse(const char* json_str, uint32_t length);
 
 #endif  // JJ_H
-#pragma clang diagnostic pop
