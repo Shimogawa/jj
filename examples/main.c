@@ -1,7 +1,13 @@
 #include "jj.h"
 
-void main() {
-    const char* j = "114514";
+int main() {
+    const char* j = "\"abcdefg\"";
     jj_jsonobj* jobj = jj_parse(j, strlen(j));
-    printf("%d %lld\n", jobj->type, jobj->data.intval);
+    if (!jobj) {
+        fprintf(stderr, "Error\n");
+        return 1;
+    }
+    printf("%d %s\n", jobj->type, jobj->data.strval);
+    jj_free(jobj);
+    return 0;
 }
