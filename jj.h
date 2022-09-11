@@ -92,7 +92,7 @@ static inline int _jj_arrresize(jj_jsonarrdata* arr, size_t size) {
     return 0;
 }
 
-inline int _jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
+static inline int _jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
     if (arr->length + 1 >= arr->cap) {
         if (_jj_arrresize(arr, (arr->length + 1) << 1) != 0) {
             return -1;
@@ -103,6 +103,20 @@ inline int _jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
     return 0;
 }
 
+// returns a newly allocated string
+static inline jj_jsontype_str _jj_clonestr(jj_jsontype_str orig, size_t len,
+                                           bool needlen) {
+    jj_jsontype_str s = malloc(len + 1);
+    if (!s) return NULL;
+    if (needlen) {
+        strncpy(s, orig, len);
+        s[len] = 0;
+    } else {
+        strcpy(s, orig);
+    }
+    return s;
+}
+
 #define _JJ_MALLOC_NEW_JSONOBJ()             \
     (jj_jsonobj*)malloc(sizeof(jj_jsonobj)); \
     if (!val) {                              \
@@ -111,8 +125,14 @@ inline int _jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
 
 // ***************************** exposed api *****************************
 
-inline bool jj_is_json_root(jj_jsonobj* json);
-inline bool jj_is_json_type(jj_jsonobj* json, jj_valtype type);
+static inline bool jj_is_json_root(jj_jsonobj* json) {
+    return json->name == NULL;
+}
+
+static inline bool jj_is_json_type(jj_jsonobj* json, jj_valtype type) {
+    return json->type == type;
+}
+
 inline void jj_setname(jj_jsonobj* json, const char* name);
 // if name is NULL then it's root
 inline jj_jsonobj* jj_new_empty_obj(const char* name);
@@ -124,23 +144,61 @@ inline jj_jsonobj* jj_new_jsonstr(const char* name, jj_jsontype_str s);
 inline jj_jsonobj* jj_new_jsonnull(const char* name);
 inline jj_jsonobj* jj_new_jsonobj(const char* name);
 // takes ownership of `val`
-inline void jj_oput(jj_jsonobj* obj, jj_jsonobj* val);
-inline jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name);
-jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name) {
-    if (!jj_is_json_type(obj, JJ_VALTYPE_OBJ)) {
-        return NULL;
-    }
-    jj_jsonobj* g =
-        hashmap_get(obj->data.objval, &(jj_jsonobj){.name = (char*)name});
-    return g;
-}
+void jj_oput(jj_jsonobj* obj, jj_jsonobj* val);
+jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name);
 
 inline jj_jsonobj* jj_aget(jj_jsonobj* obj, uint32_t idx);
 // return true if success, false if obj is not array or append fails
 inline bool jj_aappend(jj_jsonobj* obj, jj_jsonobj* val);
+
+static inline bool jj_isnull(jj_jsonobj* obj) {
+    return jj_is_json_type(obj, JJ_VALTYPE_NULL);
+}
+
+#define _JJ_GENFUNC_OGET_ASTYPE(type, valtype)                          \
+    static inline bool jj_oget##type(jj_jsonobj* obj, const char* name, \
+                                     jj_jsontype_##type* result) {      \
+        jj_jsonobj* ref = jj_oget(obj, name);                           \
+        if (!ref) {                                                     \
+            return false;                                               \
+        }                                                               \
+        if (!jj_is_json_type(ref, valtype)) {                           \
+            return false;                                               \
+        }                                                               \
+        *result = ref->data.type##val;                                  \
+        return true;                                                    \
+    }
+
 // returns true if success, false if not of type bool.
-inline bool jj_ogetbool(jj_jsonobj* obj, const char* name,
-                        jj_jsontype_bool* result);
+_JJ_GENFUNC_OGET_ASTYPE(bool, JJ_VALTYPE_BOOL)
+// returns true if success, false if not of type int.
+_JJ_GENFUNC_OGET_ASTYPE(int, JJ_VALTYPE_INT)
+// returns true if success, false if not of type float.
+_JJ_GENFUNC_OGET_ASTYPE(float, JJ_VALTYPE_FLOAT)
+
+static inline jj_jsontype_str jj_ogetstrref(jj_jsonobj* obj, const char* name) {
+    jj_jsonobj* ref = jj_oget(obj, name);
+    if (!ref) {
+        return false;
+    }
+    if (!jj_is_json_type(ref, JJ_VALTYPE_STR)) {
+        return false;
+    }
+    return ref->data.strval;
+}
+
+// returns a newly allocated string, or NULL if failed.
+// If you just want a reference, use `jj_ogetstrref` instead.
+static inline jj_jsontype_str jj_ogetstr(jj_jsonobj* obj, const char* name) {
+    jj_jsontype_str s = jj_ogetstrref(obj, name);
+    return _jj_clonestr(s, 0, false);
+}
+
+// returns true if success, false if not of type bool.
+// static inline bool jj_ogetbool(jj_jsonobj* obj, const char* name,
+//                               jj_jsontype_bool* result) {
+//    _JJ_OGET_ASTYPE(obj, name, result, bool, JJ_VALTYPE_BOOL);
+//}
 
 #define _JJ_JSONOBJ_INIT_SETNAME(val, name) \
     (val)->name = NULL;                     \

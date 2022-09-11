@@ -1,11 +1,5 @@
 #include "jj.h"
 
-bool jj_is_json_root(jj_jsonobj* json) { return json->name == NULL; }
-
-bool jj_is_json_type(jj_jsonobj* json, jj_valtype type) {
-    return json->type == type;
-}
-
 void jj_setname(jj_jsonobj* json, const char* name) {
     free(json->name);
     if (!name) {
@@ -72,6 +66,15 @@ void jj_oput(jj_jsonobj* obj, jj_jsonobj* val) {
     hashmap_set(obj->data.objval, val);
 }
 
+jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name) {
+    if (!jj_is_json_type(obj, JJ_VALTYPE_OBJ)) {
+        return NULL;
+    }
+    jj_jsonobj* g =
+        hashmap_get(obj->data.objval, &(jj_jsonobj){.name = (char*)name});
+    return g;
+}
+
 jj_jsonobj* jj_aget(jj_jsonobj* obj, uint32_t idx) {
     if (!jj_is_json_type(obj, JJ_VALTYPE_ARR)) {
         return NULL;
@@ -84,18 +87,6 @@ bool jj_aappend(jj_jsonobj* obj, jj_jsonobj* val) {
         return false;
     }
     return _jj_arrappend(obj->data.arrval, val) == 0;
-}
-
-bool jj_ogetbool(jj_jsonobj* obj, const char* name, jj_jsontype_bool* result) {
-    jj_jsonobj* ref = jj_oget(obj, name);
-    if (!ref) {
-        return false;
-    }
-    if (!jj_is_json_type(ref, JJ_VALTYPE_BOOL)) {
-        return false;
-    }
-    *result = ref->data.boolval;
-    return true;
 }
 
 void jj_free(jj_jsonobj* root) {  // NOLINT
@@ -122,6 +113,7 @@ void _jj_arrfree(jj_jsonarrdata* arr) {  // NOLINT
 }
 
 void _jj_lex_read_str(_jj_lexstate* state) {
+    _jj_lexstate_clear_strbuf(state);
     _jj_lexstate_nextchar(state);  // consume '"'
     char cur;
     while (true) {
@@ -214,11 +206,7 @@ void _jj_lex_next(_jj_lexstate* state) {
 }
 
 jj_jsontype_str _jj_lexstate_getstr(_jj_lexstate* state) {
-    jj_jsontype_str s = malloc(state->buflen + 1);
-    if (!s) return NULL;
-    strncpy(s, state->strbuf, state->buflen);
-    s[state->buflen] = 0;
-    return s;
+    return _jj_clonestr(state->strbuf, state->buflen, true);
 }
 
 bool _jj_lexstate_getint(_jj_lexstate* state, jj_jsontype_int* result) {
@@ -301,15 +289,20 @@ jj_jsonobj* _jj_lexstate_parsenode(_jj_lexstate* state, jj_jsonobj* root,
 }
 
 jj_jsonobj* _jj_lexstate_parseobj(_jj_lexstate* state, const char* name) {
-    _jj_lex_next(state);
-    if (state->curtoken != _JJ_TOKEN_STR) {
-        state->curtoken = _JJ_TOKEN_INVALID;
-        return NULL;
-    }
+    //    _jj_lex_next(state);
+    //    if (state->curtoken != _JJ_TOKEN_STR) {
+    //        state->curtoken = _JJ_TOKEN_INVALID;
+    //        return NULL;
+    //    }
     jj_jsonobj* root = jj_new_jsonobj(name);
     char* propname = NULL;
     while (true) {
         free(propname);
+        _jj_lex_next(state);
+        if (state->curtoken != _JJ_TOKEN_STR) {
+            state->curtoken = _JJ_TOKEN_INVALID;
+            return NULL;
+        }
         propname = _jj_lexstate_getstr(state);
         if (!propname) {
             return NULL;
@@ -322,7 +315,7 @@ jj_jsonobj* _jj_lexstate_parseobj(_jj_lexstate* state, const char* name) {
                 state->curtoken = _JJ_TOKEN_INVALID;
             return NULL;
         }
-        _jj_lexstate_nextchar(state);  // consume ':'
+        _jj_lex_next(state);  // consume ':'
         _jj_lex_skip_whitespace(state);
         _jj_lex_next(state);
         _jj_lexstate_parsenode(state, root, propname);
@@ -331,7 +324,6 @@ jj_jsonobj* _jj_lexstate_parseobj(_jj_lexstate* state, const char* name) {
         if (state->curtoken != ',') {
             break;
         }
-        _jj_lexstate_nextchar(state);
     }
     free(propname);
     if (state->curtoken != '}') {
