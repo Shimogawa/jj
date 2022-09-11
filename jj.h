@@ -24,7 +24,7 @@ typedef bool jj_jsontype_bool;
 #define JJ_JSON_TRUE  true
 #define JJ_JSON_FALSE false
 
-#define JJ_VALTYPE_NULL  114514
+#define JJ_VALTYPE_NULL  1145
 #define JJ_VALTYPE_OBJ   1
 #define JJ_VALTYPE_ARR   2
 #define JJ_VALTYPE_INT   3
@@ -32,41 +32,43 @@ typedef bool jj_jsontype_bool;
 #define JJ_VALTYPE_BOOL  5
 #define JJ_VALTYPE_STR   6
 
-typedef union _jsondata;
-
+typedef union _jsondata jj_jsondata;
 // if name is NULL, then it's root
-typedef struct _jsonobj;
+typedef struct _jsonobj jj_jsonobj;
+typedef struct _jsonarrdata jj_jsonarrdata;
 
-typedef struct _jsonarrdata {
+struct _jsonarrdata {
     uint32_t length;
     uint32_t cap;
     struct _jsonobj* arr;
-} jj_jsonarrdata;
+};
 
-typedef union _jsondata {
+union _jsondata {
     jj_jsontype_int intval;
     jj_jsontype_str strval;
     jj_jsontype_float floatval;
     jj_jsontype_bool boolval;
     hashmap* objval;
     struct _jsonarrdata* arrval;
-} jj_jsondata;
+};
 
-typedef struct _jsonobj {
+struct _jsonobj {
     jj_valtype type;
     char* name;
 
     union _jsondata data;
-} jj_jsonobj;
+};
 
-static inline uint64_t _jj_hash_func(const void* item, uint64_t seed0,
-                                     uint64_t seed1) {
+static uint64_t _jj_hash_func(const void* item, uint64_t seed0,
+                              uint64_t seed1) {
     const jj_jsonobj* j = (const jj_jsonobj*)item;
     return hashmap_sip(j->name, strlen(j->name), seed0, seed1);
 }
 
-static inline int _jj_comp_func(const void* a, const void* b, void* udata) {
-    return (int)((size_t)a - (size_t)b);
+static int _jj_comp_func(const void* a, const void* b, void* udata) {
+    const jj_jsonobj* j1 = (const jj_jsonobj*)a;
+    const jj_jsonobj* j2 = (const jj_jsonobj*)b;
+    return strcmp(j1->name, j2->name);
 }
 
 static inline hashmap* _jj_new_hashmap() {
@@ -107,30 +109,44 @@ inline int _jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
         return NULL;                         \
     }
 
+// ***************************** exposed api *****************************
+
 inline bool jj_is_json_root(jj_jsonobj* json);
 inline bool jj_is_json_type(jj_jsonobj* json, jj_valtype type);
 inline void jj_setname(jj_jsonobj* json, const char* name);
-
-#define _JJ_JSONOBJ_INIT_SETNAME(val, name) \
-    (val)->name = NULL;                     \
-    if (name) jj_setname((val), (name));
-
 // if name is NULL then it's root
 inline jj_jsonobj* jj_new_empty_obj(const char* name);
 inline jj_jsonobj* jj_new_jsonbool(const char* name, jj_jsontype_bool b);
 inline jj_jsonobj* jj_new_jsonint(const char* name, jj_jsontype_int i);
 inline jj_jsonobj* jj_new_jsonfloat(const char* name, jj_jsontype_float f);
+// takes ownership of `s`.
 inline jj_jsonobj* jj_new_jsonstr(const char* name, jj_jsontype_str s);
 inline jj_jsonobj* jj_new_jsonnull(const char* name);
 inline jj_jsonobj* jj_new_jsonobj(const char* name);
-inline void jj_jsonobj_put(jj_jsonobj* obj, jj_jsonobj* val);
+// takes ownership of `val`
+inline void jj_oput(jj_jsonobj* obj, jj_jsonobj* val);
 inline jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name);
+jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name) {
+    if (!jj_is_json_type(obj, JJ_VALTYPE_OBJ)) {
+        return NULL;
+    }
+    jj_jsonobj* g =
+        hashmap_get(obj->data.objval, &(jj_jsonobj){.name = (char*)name});
+    return g;
+}
+
 inline jj_jsonobj* jj_aget(jj_jsonobj* obj, uint32_t idx);
+// return true if success, false if obj is not array or append fails
+inline bool jj_aappend(jj_jsonobj* obj, jj_jsonobj* val);
 // returns true if success, false if not of type bool.
 inline bool jj_ogetbool(jj_jsonobj* obj, const char* name,
                         jj_jsontype_bool* result);
 
-// ***************************** parsing **********************************
+#define _JJ_JSONOBJ_INIT_SETNAME(val, name) \
+    (val)->name = NULL;                     \
+    if (name) jj_setname((val), (name));
+
+// ***************************** parsing *****************************
 
 typedef uint16_t _jj_token_type;
 
@@ -155,6 +171,8 @@ typedef struct _jj_lexstate {
     size_t bufcap;
     _jj_token_type curtoken;
 } _jj_lexstate;
+
+#define _JJ_LEXSTATE_CURCHAR(state) (state)->original[(state)->cur_idx]
 
 static inline bool _jj_is_char_oneof(_jj_token_type c, const char* chars) {
     if (c > 255) {
@@ -253,7 +271,7 @@ static inline void _jj_lexstate_resize_strbuf(_jj_lexstate* s) {
     }
 }
 
-static inline void _jj_lexstate_reset_strbuf(_jj_lexstate* s) { s->buflen = 0; }
+static inline void _jj_lexstate_clear_strbuf(_jj_lexstate* s) { s->buflen = 0; }
 
 static inline void _jj_lexstate_append_strbuf(_jj_lexstate* s, char c) {
     _jj_lexstate_resize_strbuf(s);
@@ -267,19 +285,46 @@ static inline void _jj_lexstate_err(_jj_lexstate* s) {
                 s->line, s->col);
         return;
     }
-    _jj_lexstate_resize_strbuf(s);
-    s->strbuf[s->buflen] = '\0';
-    s->buflen++;
+    if (s->curtoken == _JJ_TOKEN_EOF) {
+        fprintf(stderr, "Encountered EOF\n");
+        return;
+    }
+    _jj_lexstate_append_strbuf(s, '\0');
     fprintf(stderr, "Invalid token '%s' at line %zu col %zu\n", s->strbuf,
             s->line, s->col);
 }
 
-#define _JJ_PARSE_ERR(state)  \
-    _jj_lexstate_err(state);  \
-    _jj_free_lexstate(state); \
+#define _JJ_LEXSTATE_ERR(state) \
+    _jj_lexstate_err(state);    \
+    _jj_free_lexstate(state);   \
     return NULL
 
-void _jj_lex_next(_jj_lexstate* state);
+static void _jj_lex_skip_whitespace(_jj_lexstate* state) {
+    char cur;
+    while (true) {
+        if (_jj_lexstate_isatend(state)) {
+            state->curtoken = _JJ_TOKEN_EOF;
+            return;
+        }
+        cur = _JJ_LEXSTATE_CURCHAR(state);
+        if (_jj_is_char_oneof(cur, " \r\t\n")) {
+            _jj_lexstate_nextchar(state);
+            continue;
+        }
+        break;
+    }
+}
+
+static void _jj_lex_read_str(_jj_lexstate* state);
+static void _jj_lex_read_val(_jj_lexstate* state);
+static void _jj_lex_next(_jj_lexstate* state);
+// returns a newly allocated string, or null if not able to
+static jj_jsontype_str _jj_lexstate_getstr(_jj_lexstate* state);
+static bool _jj_lexstate_getint(_jj_lexstate* state, jj_jsontype_int* result);
+static bool _jj_lexstate_getfloat(_jj_lexstate* state,
+                                  jj_jsontype_float* result);
+static jj_jsonobj* _jj_lexstate_parseobj(_jj_lexstate* state, const char* name);
+
 jj_jsonobj* jj_parse(const char* json_str, uint32_t length);
 
 #endif  // JJ_H
