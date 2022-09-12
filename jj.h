@@ -220,7 +220,7 @@ UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_aget(jj_jsonobj* obj,
     UJJ_MAYBE_UNUSED static inline bool jj_aget##type(               \
         jj_jsonobj* obj, uint32_t idx, jj_jsontype_##type* result) { \
         jj_jsonobj* ref = jj_aget(obj, idx);                         \
-        if (!jj_is_json_type(obj, valtype)) {                        \
+        if (!jj_is_json_type(ref, valtype)) {                        \
             return false;                                            \
         }                                                            \
         *result = ref->data.type##val;                               \

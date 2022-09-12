@@ -5,3 +5,4 @@
 *.pdb
 .idea/
 cmake-build-*/
+build/
