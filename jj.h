@@ -20,7 +20,12 @@ typedef char* jj_jsontype_str;
 typedef long double jj_jsontype_float;
 typedef bool jj_jsontype_bool;
 
-#define JJ_JSON_NULL  NULL
+#if defined(__GNUC__) || defined(__clang__)
+#define UJJ_MAYBE_UNUSED __attribute__((unused))
+#else
+#define UJJ_MAYBE_UNUSED
+#endif
+
 #define JJ_JSON_TRUE  true
 #define JJ_JSON_FALSE false
 
@@ -32,69 +37,82 @@ typedef bool jj_jsontype_bool;
 #define JJ_VALTYPE_BOOL  5
 #define JJ_VALTYPE_STR   6
 
-typedef union _jsondata jj_jsondata;
+typedef union jj_jsondata jj_jsondata;
 // if name is NULL, then it's root
-typedef struct _jsonobj jj_jsonobj;
-typedef struct _jsonarrdata jj_jsonarrdata;
+typedef struct jj_jsonobj jj_jsonobj;
+typedef struct jj_jsonarrdata jj_jsonarrdata;
 
-struct _jsonarrdata {
+struct jj_jsonarrdata {
     uint32_t length;
     uint32_t cap;
-    struct _jsonobj* arr;
+    struct jj_jsonobj* arr;
 };
 
-union _jsondata {
-    jj_jsontype_int intval;
-    jj_jsontype_str strval;
-    jj_jsontype_float floatval;
-    jj_jsontype_bool boolval;
-    hashmap* objval;
-    struct _jsonarrdata* arrval;
+union jj_jsondata {
+    UJJ_MAYBE_UNUSED jj_jsontype_int intval;
+    UJJ_MAYBE_UNUSED jj_jsontype_str strval;
+    UJJ_MAYBE_UNUSED jj_jsontype_float floatval;
+    UJJ_MAYBE_UNUSED jj_jsontype_bool boolval;
+    UJJ_MAYBE_UNUSED hashmap* objval;
+    UJJ_MAYBE_UNUSED struct jj_jsonarrdata* arrval;
 };
 
-struct _jsonobj {
+struct jj_jsonobj {
     jj_valtype type;
     char* name;
 
-    union _jsondata data;
+    union jj_jsondata data;
 };
 
-static uint64_t _jj_hash_func(const void* item, uint64_t seed0,
+static uint64_t ojj_hash_func(const void* item, uint64_t seed0,
                               uint64_t seed1) {
     const jj_jsonobj* j = (const jj_jsonobj*)item;
     return hashmap_sip(j->name, strlen(j->name), seed0, seed1);
 }
 
-static int _jj_comp_func(const void* a, const void* b, void* udata) {
+static int ojj_comp_func(const void* a, const void* b,
+                         UJJ_MAYBE_UNUSED void* udata) {
     const jj_jsonobj* j1 = (const jj_jsonobj*)a;
     const jj_jsonobj* j2 = (const jj_jsonobj*)b;
     return strcmp(j1->name, j2->name);
 }
 
-static inline hashmap* _jj_new_hashmap() {
-    return hashmap_new(sizeof(jj_jsonobj), 0, 0, 0, _jj_hash_func,
-                       _jj_comp_func, NULL, NULL);
+static inline hashmap* ojj_new_hashmap() {
+    return hashmap_new(sizeof(jj_jsonobj), 0, 0, 0, ojj_hash_func,
+                       ojj_comp_func, NULL, NULL);
 }
 
-static inline void _jj_hashmap_free(hashmap* map) { hashmap_free(map); }
+static inline void ojj_hashmap_free(hashmap* map) { hashmap_free(map); }
 
 // don't free subelements of json structure. only free the root.
 void jj_free(jj_jsonobj* root);
-inline void _jj_arrfree(jj_jsonarrdata* arr);
 
-static inline int _jj_arrresize(jj_jsonarrdata* arr, size_t size) {
-    jj_jsonobj* loc = realloc(arr->arr, size * sizeof(jj_jsonobj));
-    if (!loc) {
+static inline jj_jsonarrdata* ojj_newarrdata(size_t cap) {
+    jj_jsonarrdata* arrdata = malloc(sizeof(jj_jsonarrdata));
+    arrdata->length = 0;
+    arrdata->cap = cap;
+    arrdata->arr = malloc(sizeof(jj_jsonobj) * cap);
+    return arrdata;
+}
+
+static inline void ojj_arrfree(jj_jsonarrdata* arr) {
+    free(arr->arr);
+    free(arr);
+}
+
+static inline int ojj_arrresize(jj_jsonarrdata* arr, size_t size) {
+    jj_jsonobj* new = realloc(arr->arr, size * sizeof(jj_jsonobj));
+    if (!new) {
         return -1;
     }
-    arr->arr = loc;
+    arr->arr = new;
     arr->cap = size;
     return 0;
 }
 
-static inline int _jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
+static inline int ojj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
     if (arr->length + 1 >= arr->cap) {
-        if (_jj_arrresize(arr, (arr->length + 1) << 1) != 0) {
+        if (ojj_arrresize(arr, (arr->length + 1) << 1) != 0) {
             return -1;
         }
     }
@@ -104,20 +122,15 @@ static inline int _jj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
 }
 
 // returns a newly allocated string
-static inline jj_jsontype_str _jj_clonestr(jj_jsontype_str orig, size_t len,
-                                           bool needlen) {
+static inline jj_jsontype_str ujj_clonestr(jj_jsontype_str orig, size_t len) {
     jj_jsontype_str s = malloc(len + 1);
     if (!s) return NULL;
-    if (needlen) {
-        strncpy(s, orig, len);
-        s[len] = 0;
-    } else {
-        strcpy(s, orig);
-    }
+    strncpy_s(s, len + 1, orig, len);
+    s[len] = 0;
     return s;
 }
 
-#define _JJ_MALLOC_NEW_JSONOBJ()             \
+#define OJJ_MALLOC_NEW_JSONOBJ()             \
     (jj_jsonobj*)malloc(sizeof(jj_jsonobj)); \
     if (!val) {                              \
         return NULL;                         \
@@ -125,99 +138,185 @@ static inline jj_jsontype_str _jj_clonestr(jj_jsontype_str orig, size_t len,
 
 // ***************************** exposed api *****************************
 
-static inline bool jj_is_json_root(jj_jsonobj* json) {
+UJJ_MAYBE_UNUSED static inline bool jj_is_json_root(jj_jsonobj* json) {
     return json->name == NULL;
 }
 
-static inline bool jj_is_json_type(jj_jsonobj* json, jj_valtype type) {
+UJJ_MAYBE_UNUSED static inline bool jj_is_json_type(jj_jsonobj* json,
+                                                    jj_valtype type) {
+    if (!json) return false;
     return json->type == type;
 }
 
-inline void jj_setname(jj_jsonobj* json, const char* name);
-// if name is NULL then it's root
-inline jj_jsonobj* jj_new_empty_obj(const char* name);
-inline jj_jsonobj* jj_new_jsonbool(const char* name, jj_jsontype_bool b);
-inline jj_jsonobj* jj_new_jsonint(const char* name, jj_jsontype_int i);
-inline jj_jsonobj* jj_new_jsonfloat(const char* name, jj_jsontype_float f);
-// takes ownership of `s`.
-inline jj_jsonobj* jj_new_jsonstr(const char* name, jj_jsontype_str s);
-inline jj_jsonobj* jj_new_jsonnull(const char* name);
-inline jj_jsonobj* jj_new_jsonobj(const char* name);
-// takes ownership of `val`
-void jj_oput(jj_jsonobj* obj, jj_jsonobj* val);
-jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name);
-
-inline jj_jsonobj* jj_aget(jj_jsonobj* obj, uint32_t idx);
-// return true if success, false if obj is not array or append fails
-inline bool jj_aappend(jj_jsonobj* obj, jj_jsonobj* val);
-
-static inline bool jj_isnull(jj_jsonobj* obj) {
-    return jj_is_json_type(obj, JJ_VALTYPE_NULL);
+// Sets name for a json object. Creates a new copy of `name`.
+static inline void jj_setname(jj_jsonobj* json, const char* const name) {
+    free(json->name);
+    if (!name) {
+        json->name = NULL;
+        return;
+    }
+    size_t len = strlen(name);
+    char* buf = malloc(len + 1);
+    strcpy_s(buf, len + 1, name);
+    json->name = buf;
 }
 
-#define _JJ_GENFUNC_OGET_ASTYPE(type, valtype)                          \
-    static inline bool jj_oget##type(jj_jsonobj* obj, const char* name, \
-                                     jj_jsontype_##type* result) {      \
-        jj_jsonobj* ref = jj_oget(obj, name);                           \
-        if (!ref) {                                                     \
-            return false;                                               \
-        }                                                               \
-        if (!jj_is_json_type(ref, valtype)) {                           \
-            return false;                                               \
-        }                                                               \
-        *result = ref->data.type##val;                                  \
-        return true;                                                    \
+#define OJJ_GENFUNC_NEWOBJ(ty, valtype)                         \
+    UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_json##ty( \
+        const char* name, jj_jsontype_##ty v) {                 \
+        jj_jsonobj* obj = jj_new_empty_obj(name);               \
+        obj->type = valtype;                                    \
+        obj->data.ty##val = v;                                  \
+        return obj;                                             \
     }
 
-// returns true if success, false if not of type bool.
-_JJ_GENFUNC_OGET_ASTYPE(bool, JJ_VALTYPE_BOOL)
-// returns true if success, false if not of type int.
-_JJ_GENFUNC_OGET_ASTYPE(int, JJ_VALTYPE_INT)
-// returns true if success, false if not of type float.
-_JJ_GENFUNC_OGET_ASTYPE(float, JJ_VALTYPE_FLOAT)
-
-static inline jj_jsontype_str jj_ogetstrref(jj_jsonobj* obj, const char* name) {
-    jj_jsonobj* ref = jj_oget(obj, name);
-    if (!ref) {
-        return false;
-    }
-    if (!jj_is_json_type(ref, JJ_VALTYPE_STR)) {
-        return false;
-    }
-    return ref->data.strval;
-}
-
-// returns a newly allocated string, or NULL if failed.
-// If you just want a reference, use `jj_ogetstrref` instead.
-static inline jj_jsontype_str jj_ogetstr(jj_jsonobj* obj, const char* name) {
-    jj_jsontype_str s = jj_ogetstrref(obj, name);
-    return _jj_clonestr(s, 0, false);
-}
-
-// returns true if success, false if not of type bool.
-// static inline bool jj_ogetbool(jj_jsonobj* obj, const char* name,
-//                               jj_jsontype_bool* result) {
-//    _JJ_OGET_ASTYPE(obj, name, result, bool, JJ_VALTYPE_BOOL);
-//}
-
-#define _JJ_JSONOBJ_INIT_SETNAME(val, name) \
+#define OJJ_JSONOBJ_INIT_SETNAME(val, name) \
     (val)->name = NULL;                     \
     if (name) jj_setname((val), (name));
 
+// if name is NULL then it's root
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_empty_obj(const char* name) {
+    jj_jsonobj* val = OJJ_MALLOC_NEW_JSONOBJ();
+    OJJ_JSONOBJ_INIT_SETNAME(val, name);
+    return val;
+}
+
+OJJ_GENFUNC_NEWOBJ(bool, JJ_VALTYPE_BOOL)
+OJJ_GENFUNC_NEWOBJ(int, JJ_VALTYPE_INT)
+OJJ_GENFUNC_NEWOBJ(float, JJ_VALTYPE_FLOAT)
+// takes ownership of `s`.
+OJJ_GENFUNC_NEWOBJ(str, JJ_VALTYPE_STR)
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_jsonnull(const char* name) {
+    jj_jsonobj* val = jj_new_empty_obj(name);
+    val->type = JJ_VALTYPE_NULL;
+    return val;
+}
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_jsonobj(const char* name) {
+    jj_jsonobj* val = jj_new_empty_obj(name);
+    val->type = JJ_VALTYPE_OBJ;
+    val->data.objval = ojj_new_hashmap();
+    return val;
+};
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_jsonarr(const char* name) {
+    jj_jsonobj* val = jj_new_empty_obj(name);
+    val->type = JJ_VALTYPE_ARR;
+    val->data.arrval = ojj_newarrdata(3);
+    return val;
+};
+
+// takes ownership of `val`
+UJJ_MAYBE_UNUSED void jj_oput(jj_jsonobj* obj, jj_jsonobj* val);
+UJJ_MAYBE_UNUSED jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name);
+
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_aget(jj_jsonobj* obj,
+                                                   uint32_t idx) {
+    if (!jj_is_json_type(obj, JJ_VALTYPE_ARR)) {
+        return NULL;
+    }
+    return obj->data.arrval->arr + idx;
+}
+
+#define OJJ_GENFUNC_AGET_ASTYPE(type, valtype)                       \
+    UJJ_MAYBE_UNUSED static inline bool jj_aget##type(               \
+        jj_jsonobj* obj, uint32_t idx, jj_jsontype_##type* result) { \
+        jj_jsonobj* ref = jj_aget(obj, idx);                         \
+        if (!jj_is_json_type(obj, valtype)) {                        \
+            return false;                                            \
+        }                                                            \
+        *result = ref->data.type##val;                               \
+        return true;                                                 \
+    }
+
+OJJ_GENFUNC_AGET_ASTYPE(int, JJ_VALTYPE_INT)
+OJJ_GENFUNC_AGET_ASTYPE(float, JJ_VALTYPE_FLOAT)
+OJJ_GENFUNC_AGET_ASTYPE(bool, JJ_VALTYPE_BOOL)
+// returns a reference of string for this object, or NULL if not of type string.
+UJJ_MAYBE_UNUSED static inline jj_jsontype_str jj_agetstrref(jj_jsonobj* obj,
+                                                             uint32_t idx) {
+    jj_jsonobj* ref = jj_aget(obj, idx);
+    if (!jj_is_json_type(ref, JJ_VALTYPE_STR)) {
+        return NULL;
+    }
+    return ref->data.strval;
+}
+// returns a newly allocated string, or NULL if failed.
+// If you just want a reference, use `jj_agetstrref` instead.
+UJJ_MAYBE_UNUSED static inline jj_jsontype_str jj_agetstr(jj_jsonobj* obj,
+                                                          uint32_t idx) {
+    jj_jsontype_str s = jj_agetstrref(obj, idx);
+    return ujj_clonestr(s, strlen(s));
+}
+
+// return true if success, false if obj is not array or append fails
+UJJ_MAYBE_UNUSED static inline bool jj_aappend(jj_jsonobj* obj,
+                                               jj_jsonobj* val) {
+    if (!jj_is_json_type(obj, JJ_VALTYPE_ARR)) {
+        return false;
+    }
+    return ojj_arrappend(obj->data.arrval, val) == 0;
+}
+
+UJJ_MAYBE_UNUSED static inline bool jj_isnull(jj_jsonobj* obj) {
+    return jj_is_json_type(obj, JJ_VALTYPE_NULL);
+}
+
+#define OJJ_GENFUNC_OGET_ASTYPE(type, valtype)                           \
+    UJJ_MAYBE_UNUSED static inline bool jj_oget##type(                   \
+        jj_jsonobj* obj, const char* name, jj_jsontype_##type* result) { \
+        jj_jsonobj* ref = jj_oget(obj, name);                            \
+        if (!jj_is_json_type(ref, valtype)) {                            \
+            return false;                                                \
+        }                                                                \
+        *result = ref->data.type##val;                                   \
+        return true;                                                     \
+    }
+
+// returns true if success, false if not of type bool.
+OJJ_GENFUNC_OGET_ASTYPE(bool, JJ_VALTYPE_BOOL)
+// returns true if success, false if not of type int.
+OJJ_GENFUNC_OGET_ASTYPE(int, JJ_VALTYPE_INT)
+// returns true if success, false if not of type float.
+OJJ_GENFUNC_OGET_ASTYPE(float, JJ_VALTYPE_FLOAT)
+// returns a reference of string for this object, or NULL if not of type string.
+UJJ_MAYBE_UNUSED static inline jj_jsontype_str jj_ogetstrref(jj_jsonobj* obj,
+                                                             const char* name) {
+    jj_jsonobj* ref = jj_oget(obj, name);
+    if (!jj_is_json_type(ref, JJ_VALTYPE_STR)) {
+        return NULL;
+    }
+    return ref->data.strval;
+}
+// returns a newly allocated string, or NULL if failed.
+// If you just want a reference, use `jj_ogetstrref` instead.
+UJJ_MAYBE_UNUSED static inline jj_jsontype_str jj_ogetstr(jj_jsonobj* obj,
+                                                          const char* name) {
+    jj_jsontype_str s = jj_ogetstrref(obj, name);
+    return ujj_clonestr(s, strlen(s));
+}
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_ogetarridx(jj_jsonobj* obj,
+                                                         const char* name,
+                                                         size_t idx) {
+    jj_jsonobj* a = jj_oget(obj, name);
+    if (!jj_is_json_type(a, JJ_VALTYPE_ARR)) {
+        return NULL;
+    }
+    return jj_aget(a, idx);
+}
+
 // ***************************** parsing *****************************
 
-typedef uint16_t _jj_token_type;
+typedef uint16_t ljj_token_type;
 
-#define _JJ_TOKEN_INT     1001
-#define _JJ_TOKEN_FLOAT   1002
-#define _JJ_TOKEN_STR     1003
-#define _JJ_TOKEN_NULL    1004
-#define _JJ_TOKEN_TRUE    1005
-#define _JJ_TOKEN_FALSE   1006
-#define _JJ_TOKEN_INVALID 1145
-#define _JJ_TOKEN_EOF     1146
+#define LJJ_TOKEN_INT     1001
+#define LJJ_TOKEN_FLOAT   1002
+#define LJJ_TOKEN_STR     1003
+#define LJJ_TOKEN_NULL    1004
+#define LJJ_TOKEN_TRUE    1005
+#define LJJ_TOKEN_FALSE   1006
+#define LJJ_TOKEN_INVALID 1145
+#define LJJ_TOKEN_EOF     1146
 
-typedef struct _jj_lexstate {
+typedef struct ljj_lexstate {
     const char* original;
     uint32_t length;
 
@@ -227,12 +326,12 @@ typedef struct _jj_lexstate {
     char* strbuf;
     size_t buflen;
     size_t bufcap;
-    _jj_token_type curtoken;
-} _jj_lexstate;
+    ljj_token_type curtoken;
+} ljj_lexstate;
 
-#define _JJ_LEXSTATE_CURCHAR(state) (state)->original[(state)->cur_idx]
+#define LJJ_LEXSTATE_CURCHAR(state) (state)->original[(state)->cur_idx]
 
-static inline bool _jj_is_char_oneof(_jj_token_type c, const char* chars) {
+static inline bool ujj_is_char_oneof(ljj_token_type c, const char* chars) {
     if (c > 255) {
         return false;
     }
@@ -248,7 +347,7 @@ static inline bool _jj_is_char_oneof(_jj_token_type c, const char* chars) {
 }
 
 // c cannot be NULL char (0).
-static inline bool _jj_str_contains_s(const char* s, size_t len, char c) {
+static inline bool ujj_str_contains_s(const char* s, size_t len, char c) {
     if (c == 0) {
         return false;
     }
@@ -263,7 +362,7 @@ static inline bool _jj_str_contains_s(const char* s, size_t len, char c) {
     return false;
 }
 
-static inline bool _jj_str_isint(const char* s, const size_t len,
+static inline bool ujj_str_isint(const char* s, const size_t len,
                                  bool* isinvalid) {
     size_t i = 0;
     *isinvalid = false;
@@ -279,9 +378,9 @@ static inline bool _jj_str_isint(const char* s, const size_t len,
     return true;
 }
 
-static inline _jj_lexstate* _jj_new_lexstate(const char* original,
+static inline ljj_lexstate* ljj_new_lexstate(const char* original,
                                              const uint32_t length) {
-    _jj_lexstate* s = malloc(sizeof(_jj_lexstate));
+    ljj_lexstate* s = malloc(sizeof(ljj_lexstate));
     if (!s) {
         return NULL;
     }
@@ -297,91 +396,92 @@ static inline _jj_lexstate* _jj_new_lexstate(const char* original,
     return s;
 }
 
-static inline void _jj_free_lexstate(_jj_lexstate* s) {
+static inline void ljj_free_lexstate(ljj_lexstate* s) {
     free(s->strbuf);
     free(s);
 }
 
-static inline void _jj_lexstate_nextchar(_jj_lexstate* s) {
+static inline void ljj_lexstate_nextchar(ljj_lexstate* s) {
     if (s->original[s->cur_idx] == '\n') s->line++;
     s->cur_idx++;
     s->col++;
 }
 
-static inline bool _jj_lexstate_isatend(_jj_lexstate* s) {
+static inline bool ljj_lexstate_isatend(ljj_lexstate* s) {
     return s->cur_idx >= s->length;
 }
 
-static inline bool _jj_lexstate_bufequals(_jj_lexstate* s, const char* other,
+static inline bool ljj_lexstate_bufequals(ljj_lexstate* s, const char* other,
                                           size_t cnt) {
     return s->buflen == cnt && strncmp(s->strbuf, other, cnt) == 0;
 }
 
-static inline void _jj_lexstate_resize_strbuf(_jj_lexstate* s) {
+static inline void ljj_lexstate_resize_strbuf(ljj_lexstate* s) {
     if (s->buflen + 1 >= s->bufcap) {
         size_t cap = (s->buflen + 1) << 1;
         char* new = realloc(s->strbuf, cap);
         if (!new) {
-            exit(1145141919810ULL);
+            exit(114514);
         }
         s->strbuf = new;
         s->bufcap = cap;
     }
 }
 
-static inline void _jj_lexstate_clear_strbuf(_jj_lexstate* s) { s->buflen = 0; }
+static inline void ljj_lexstate_clear_strbuf(ljj_lexstate* s) { s->buflen = 0; }
 
-static inline void _jj_lexstate_append_strbuf(_jj_lexstate* s, char c) {
-    _jj_lexstate_resize_strbuf(s);
+static inline void ljj_lexstate_append_strbuf(ljj_lexstate* s, char c) {
+    ljj_lexstate_resize_strbuf(s);
     s->strbuf[s->buflen] = c;
     s->buflen++;
 }
 
-static inline void _jj_lexstate_err(_jj_lexstate* s) {
+static inline void ljj_lexstate_err(ljj_lexstate* s) {
     if (s->curtoken < 256) {
         fprintf(stderr, "Invalid char '%c' at line %zu col %zu\n", s->curtoken,
                 s->line, s->col);
         return;
     }
-    if (s->curtoken == _JJ_TOKEN_EOF) {
+    if (s->curtoken == LJJ_TOKEN_EOF) {
         fprintf(stderr, "Encountered EOF\n");
         return;
     }
-    _jj_lexstate_append_strbuf(s, '\0');
+    ljj_lexstate_append_strbuf(s, '\0');
     fprintf(stderr, "Invalid token '%s' at line %zu col %zu\n", s->strbuf,
             s->line, s->col);
 }
 
-#define _JJ_LEXSTATE_ERR(state) \
-    _jj_lexstate_err(state);    \
-    _jj_free_lexstate(state);   \
+#define LJJ_LEXSTATE_ERR(state) \
+    ljj_lexstate_err(state);    \
+    ljj_free_lexstate(state);   \
     return NULL
 
-static void _jj_lex_skip_whitespace(_jj_lexstate* state) {
+static void ljj_lex_skip_whitespace(ljj_lexstate* state) {
     char cur;
     while (true) {
-        if (_jj_lexstate_isatend(state)) {
-            state->curtoken = _JJ_TOKEN_EOF;
+        if (ljj_lexstate_isatend(state)) {
+            state->curtoken = LJJ_TOKEN_EOF;
             return;
         }
-        cur = _JJ_LEXSTATE_CURCHAR(state);
-        if (_jj_is_char_oneof(cur, " \r\t\n")) {
-            _jj_lexstate_nextchar(state);
+        cur = LJJ_LEXSTATE_CURCHAR(state);
+        if (ujj_is_char_oneof(cur, " \r\t\n")) {
+            ljj_lexstate_nextchar(state);
             continue;
         }
         break;
     }
 }
 
-static void _jj_lex_read_str(_jj_lexstate* state);
-static void _jj_lex_read_val(_jj_lexstate* state);
-static void _jj_lex_next(_jj_lexstate* state);
+static void ljj_lex_read_str(ljj_lexstate* state);
+static void ljj_lex_read_val(ljj_lexstate* state);
+static void ljj_lex_next(ljj_lexstate* state);
 // returns a newly allocated string, or null if not able to
-static jj_jsontype_str _jj_lexstate_getstr(_jj_lexstate* state);
-static bool _jj_lexstate_getint(_jj_lexstate* state, jj_jsontype_int* result);
-static bool _jj_lexstate_getfloat(_jj_lexstate* state,
+static jj_jsontype_str ljj_lexstate_getstr(ljj_lexstate* state);
+static bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result);
+static bool ljj_lexstate_getfloat(ljj_lexstate* state,
                                   jj_jsontype_float* result);
-static jj_jsonobj* _jj_lexstate_parseobj(_jj_lexstate* state, const char* name);
+static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state, const char* name);
+static jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state, const char* name);
 
 jj_jsonobj* jj_parse(const char* json_str, uint32_t length);
 
