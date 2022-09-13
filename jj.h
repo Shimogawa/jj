@@ -184,8 +184,29 @@ UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_empty_obj(const char* name) {
 OJJ_GENFUNC_NEWOBJ(bool, JJ_VALTYPE_BOOL)
 OJJ_GENFUNC_NEWOBJ(int, JJ_VALTYPE_INT)
 OJJ_GENFUNC_NEWOBJ(float, JJ_VALTYPE_FLOAT)
-// takes ownership of `s`.
-OJJ_GENFUNC_NEWOBJ(str, JJ_VALTYPE_STR)
+// Takes ownership of `s`. If you want to put a copy of the string in the
+// new object, use `jj_new_jsonstr` instead.
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_jsonstrref(
+    const char* name, jj_jsontype_str v) {
+    jj_jsonobj* obj = jj_new_empty_obj(name);
+    obj->type = JJ_VALTYPE_STR;
+    obj->data.strval = v;
+    return obj;
+}
+// Copies `s` with specific length. If you want the new object to take ownership
+// of the string, use `jj_new_jsonstrref` instead.
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_jsonstrn(const char* name,
+                                                           jj_jsontype_str v,
+                                                           size_t len) {
+    jj_jsontype_str s = ujj_clonestr(v, len);
+    return jj_new_jsonstrref(name, s);
+}
+// Copies `s`. If you want the new object to take ownership of the string,
+// use `jj_new_jsonstrref` instead.
+UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_jsonstr(const char* name,
+                                                          jj_jsontype_str v) {
+    return jj_new_jsonstrn(name, v, strlen(v));
+}
 UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_jsonnull(const char* name) {
     jj_jsonobj* val = jj_new_empty_obj(name);
     val->type = JJ_VALTYPE_NULL;
