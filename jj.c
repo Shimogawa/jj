@@ -77,6 +77,14 @@ static void ljj_lex_read_val(ljj_lexstate* state) {
         ljj_lexstate_append_strbuf(state, cur);
         ljj_lexstate_nextchar(state);
     }
+    if (state->buflen == 0) {
+        state->curtoken = LJJ_TOKEN_INVALID;
+        return;
+    }
+    if (state->strbuf[0] == '+') {
+        state->curtoken = LJJ_TOKEN_INVALID;
+        return;
+    }
     if (ljj_lexstate_bufequals(state, "null", 4)) {
         state->curtoken = LJJ_TOKEN_NULL;
         return;
@@ -90,12 +98,16 @@ static void ljj_lex_read_val(ljj_lexstate* state) {
         return;
     }
     bool isinvalid;
-    if (ujj_str_isint(state->strbuf, state->buflen, &isinvalid)) {
+    if (ujj_str_isjsonint(state->strbuf, state->buflen, &isinvalid)) {
         if (isinvalid) {
             state->curtoken = LJJ_TOKEN_INVALID;
             return;
         }
         state->curtoken = LJJ_TOKEN_INT;
+        return;
+    }
+    if (!ujj_str_isvalidjsonfloat(state->strbuf, state->buflen)) {
+        state->curtoken = LJJ_TOKEN_INVALID;
         return;
     }
     state->curtoken = LJJ_TOKEN_FLOAT;
@@ -154,7 +166,7 @@ bool ljj_lexstate_getfloat(ljj_lexstate* state, jj_jsontype_float* result) {
 // add this object to the property `name` in `root`, and return `root`.
 jj_jsonobj* ljj_lexstate_parsenode(ljj_lexstate* state,  // NOLINT
                                    jj_jsonobj* root, const char* name) {
-    jj_jsonobj* new;
+    jj_jsonobj* new = NULL;
     switch (state->curtoken) {
         case LJJ_TOKEN_TRUE:
             new = jj_new_jsonbool(name, JJ_JSON_TRUE);
@@ -193,12 +205,15 @@ jj_jsonobj* ljj_lexstate_parsenode(ljj_lexstate* state,  // NOLINT
             new = ljj_lexstate_parsearr(state, name);
             break;
         }
-        default:
-            state->curtoken = LJJ_TOKEN_INVALID;
-            return NULL;
+        default: {
+            break;
+        }
+    }
+    if (LJJ_LEXSTATE_ISINVALID(state)) {
+        return NULL;
     }
     if (!new) {
-        state->curtoken = LJJ_TOKEN_INVALID;
+        state->curtoken |= LJJ_TOKEN_INVALID;
         return NULL;
     }
     if (!name) {
@@ -217,25 +232,23 @@ static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state,  // NOLINT
         ljj_lex_next(state);
         if (state->curtoken != LJJ_TOKEN_STR) {
             state->curtoken = LJJ_TOKEN_INVALID;
+            free(root);
             return NULL;
         }
         propname = ljj_lexstate_getstr(state);
         if (!propname) {
-            return NULL;
-        }
-        ljj_lex_skip_whitespace(state);
-        if (LJJ_LEXSTATE_CURCHAR(state) != ':') {
-            free(propname);
             free(root);
-            if (state->curtoken != LJJ_TOKEN_EOF)
-                state->curtoken = LJJ_TOKEN_INVALID;
             return NULL;
         }
-        ljj_lex_next(state);  // consume ':'
-        ljj_lex_skip_whitespace(state);
+        ljj_lex_next(state);
+        if (state->curtoken != ':') {
+            break;
+        }
         ljj_lex_next(state);
         ljj_lexstate_parsenode(state, root, propname);
-        ljj_lex_skip_whitespace(state);
+        if (LJJ_LEXSTATE_ISINVALID(state)) {
+            break;
+        }
         ljj_lex_next(state);
         if (state->curtoken != ',') {
             break;
@@ -244,8 +257,8 @@ static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state,  // NOLINT
     free(propname);
     if (state->curtoken != '}') {
         free(root);
-        if (state->curtoken != LJJ_TOKEN_EOF)
-            state->curtoken = LJJ_TOKEN_INVALID;
+        if (!LJJ_LEXSTATE_ISINVALID(state))
+            state->curtoken |= LJJ_TOKEN_INVALID;
         return NULL;
     }
     return root;
@@ -270,8 +283,8 @@ static jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state,  // NOLINT
     }
     if (state->curtoken != ']') {
         jj_free(root);
-        if (state->curtoken != LJJ_TOKEN_EOF)
-            state->curtoken = LJJ_TOKEN_INVALID;
+        if (!LJJ_LEXSTATE_ISINVALID(state))
+            state->curtoken |= LJJ_TOKEN_INVALID;
         return NULL;
     }
     return root;
@@ -281,6 +294,10 @@ jj_jsonobj* jj_parse(const char* json_str, uint32_t length) {
     ljj_lexstate* state = ljj_new_lexstate(json_str, length);
     ljj_lex_next(state);
     jj_jsonobj* root = ljj_lexstate_parsenode(state, NULL, NULL);
+    if (LJJ_LEXSTATE_ISINVALID(state)) {
+        if (root) jj_free(root);
+        LJJ_LEXSTATE_ERR(state);
+    }
     ljj_lex_next(state);
     if (state->curtoken != LJJ_TOKEN_EOF) {
         if (root) jj_free(root);

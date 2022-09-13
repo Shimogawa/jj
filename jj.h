@@ -307,14 +307,14 @@ UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_ogetarridx(jj_jsonobj* obj,
 
 typedef uint16_t ljj_token_type;
 
-#define LJJ_TOKEN_INT     1001
-#define LJJ_TOKEN_FLOAT   1002
-#define LJJ_TOKEN_STR     1003
-#define LJJ_TOKEN_NULL    1004
-#define LJJ_TOKEN_TRUE    1005
-#define LJJ_TOKEN_FALSE   1006
-#define LJJ_TOKEN_INVALID 1145
-#define LJJ_TOKEN_EOF     1146
+#define LJJ_TOKEN_INT     0x0101
+#define LJJ_TOKEN_FLOAT   0x0201
+#define LJJ_TOKEN_STR     0x0401
+#define LJJ_TOKEN_NULL    0x0801
+#define LJJ_TOKEN_TRUE    0x1001
+#define LJJ_TOKEN_FALSE   0x2001
+#define LJJ_TOKEN_INVALID 0x4000
+#define LJJ_TOKEN_EOF     0x8000
 
 typedef struct ljj_lexstate {
     const char* original;
@@ -330,6 +330,8 @@ typedef struct ljj_lexstate {
 } ljj_lexstate;
 
 #define LJJ_LEXSTATE_CURCHAR(state) (state)->original[(state)->cur_idx]
+
+#define LJJ_LEXSTATE_ISINVALID(state) (((state)->curtoken & 0xC000))
 
 static inline bool ujj_is_char_oneof(ljj_token_type c, const char* chars) {
     if (c > 255) {
@@ -362,12 +364,12 @@ static inline bool ujj_str_contains_s(const char* s, size_t len, char c) {
     return false;
 }
 
-static inline bool ujj_str_isint(const char* s, const size_t len,
-                                 bool* isinvalid) {
+static inline bool ujj_str_isjsonint(const char* s, const size_t len,
+                                     bool* isinvalid) {
     size_t i = 0;
     *isinvalid = false;
     if (s[i] == '-') i++;
-    if (s[i] == '0') {
+    if (s[i] == '0' && len != 1) {  // if not a single 0
         *isinvalid = true;
         return false;
     }
@@ -376,6 +378,33 @@ static inline bool ujj_str_isint(const char* s, const size_t len,
         if (!isdigit(s[i])) return false;
     }
     return true;
+}
+
+static inline bool ujj_str_isvalidjsonfloat(const char* s, const size_t len) {
+    size_t i = 0;
+    if (s[i] == '-') i++;
+    while (i < len && isdigit(s[i])) {
+        i++;
+    }
+    if (s[i++] == '.') {
+        while (i < len && isdigit(s[i])) {
+            i++;
+        }
+    }
+    if (i == len) {
+        return true;
+    }
+    if (!ujj_is_char_oneof(s[i], "eE")) {
+        return false;
+    }
+    i++;
+    if (ujj_is_char_oneof(s[i], "-+")) {
+        i++;
+    }
+    while (i < len && isdigit(s[i])) {
+        i++;
+    }
+    return i == len;
 }
 
 static inline ljj_lexstate* ljj_new_lexstate(const char* original,
@@ -402,7 +431,10 @@ static inline void ljj_free_lexstate(ljj_lexstate* s) {
 }
 
 static inline void ljj_lexstate_nextchar(ljj_lexstate* s) {
-    if (s->original[s->cur_idx] == '\n') s->line++;
+    if (s->original[s->cur_idx] == '\n') {
+        s->line++;
+        s->col = 0;
+    }
     s->cur_idx++;
     s->col++;
 }
@@ -437,18 +469,19 @@ static inline void ljj_lexstate_append_strbuf(ljj_lexstate* s, char c) {
 }
 
 static inline void ljj_lexstate_err(ljj_lexstate* s) {
-    if (s->curtoken < 256) {
-        fprintf(stderr, "Invalid char '%c' at line %zu col %zu\n", s->curtoken,
-                s->line, s->col);
+    if (s->curtoken & LJJ_TOKEN_EOF) {
+        fprintf(stderr, "Encountered EOF\n");
         return;
     }
-    if (s->curtoken == LJJ_TOKEN_EOF) {
-        fprintf(stderr, "Encountered EOF\n");
+    char tok = (char)(s->curtoken & 0xFF);
+    if ((s->curtoken & LJJ_TOKEN_INVALID) && tok > 0) {
+        fprintf(stderr, "Invalid token '%c' at line %zu col %zu\n", tok,
+                s->line, s->col - 1);
         return;
     }
     ljj_lexstate_append_strbuf(s, '\0');
     fprintf(stderr, "Invalid token '%s' at line %zu col %zu\n", s->strbuf,
-            s->line, s->col);
+            s->line, s->col - s->buflen + 1);
 }
 
 #define LJJ_LEXSTATE_ERR(state) \
