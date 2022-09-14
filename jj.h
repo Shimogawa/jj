@@ -26,7 +26,8 @@ typedef bool jj_jsontype_bool;
 #define UJJ_MAYBE_UNUSED
 #endif
 
-#ifndef WIN32
+#if !(defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || \
+      defined(__NT__))
 #define strcpy_s(dest, destlen, src)       strcpy((dest), (src))
 #define strncpy_s(dest, destlen, src, len) strncpy((dest), (src), (len))
 #endif
