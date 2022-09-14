@@ -26,6 +26,11 @@ typedef bool jj_jsontype_bool;
 #define UJJ_MAYBE_UNUSED
 #endif
 
+#ifndef WIN32
+#define strcpy_s(dest, destlen, src)       strcpy((dest), (src))
+#define strncpy_s(dest, destlen, src, len) strncpy((dest), (src), (len))
+#endif
+
 #define JJ_JSON_TRUE  true
 #define JJ_JSON_FALSE false
 
