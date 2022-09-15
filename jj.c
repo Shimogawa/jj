@@ -5,6 +5,7 @@ void jj_oput(jj_jsonobj* obj, jj_jsonobj* val) {
         return;
     }
     hashmap_set(obj->data.objval, val);
+    free(val);  // since hashmap makes a shallow copy
 }
 
 jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name) {
@@ -16,22 +17,46 @@ jj_jsonobj* jj_oget(jj_jsonobj* obj, const char* name) {
     return g;
 }
 
-void jj_free(jj_jsonobj* root) {  // NOLINT
-    if (root->name) free(root->name);
-    switch (root->type) {
+void ojj_free_innerval(jj_jsonobj* obj) {
+    if (!obj) return;
+    if (obj->name) free(obj->name);
+    switch (obj->type) {
         case JJ_VALTYPE_STR:
-            free(root->data.strval);
+            free(obj->data.strval);
             break;
         case JJ_VALTYPE_OBJ:
-            ojj_hashmap_free(root->data.objval);
+            ojj_objfree(obj->data.objval);
             break;
         case JJ_VALTYPE_ARR:
-            ojj_arrfree(root->data.arrval);
+            ojj_arrfree(obj->data.arrval);
             break;
         default:
             break;
     }
+}
+
+void jj_free(jj_jsonobj* root) {  // NOLINT
+    ojj_free_innerval(root);
     free(root);
+}
+
+void ojj_objfree(hashmap* hm) {
+    if (!hm) return;
+    // size_t iter = 0;
+    // void* item;
+    // while (hashmap_iter(hm, &iter, &item)) {
+    //     jj_jsonobj* obj = item;
+    //     ojj_free_innerval(obj);
+    // }
+    hashmap_free(hm);
+}
+
+void ojj_arrfree(jj_jsonarrdata* arr) {
+    for (uint32_t i = 0; i < arr->length; i++) {
+        ojj_free_innerval(arr->arr + i);
+    }
+    free(arr->arr);
+    free(arr);
 }
 
 static void ljj_lex_read_str(ljj_lexstate* state) {
@@ -194,7 +219,7 @@ jj_jsonobj* ljj_lexstate_parsenode(ljj_lexstate* state,  // NOLINT
         }
         case LJJ_TOKEN_STR: {
             jj_jsontype_str s = ljj_lexstate_getstr(state);
-            new = jj_new_jsonstr(name, s);
+            new = jj_new_jsonstrref(name, s);
             break;
         }
         case '{': {

@@ -70,28 +70,36 @@ struct jj_jsonobj {
     union jj_jsondata data;
 };
 
-static uint64_t ojj_hash_func(const void* item, uint64_t seed0,
-                              uint64_t seed1) {
+// don't free subelements of json structure. only free the root.
+void ojj_free_innerval(jj_jsonobj* obj);
+void jj_free(jj_jsonobj* root);
+void ojj_objfree(hashmap* root);
+void ojj_arrfree(jj_jsonarrdata* arr);
+
+static uint64_t ojj_hm_hash_func(const void* item, uint64_t seed0,
+                                 uint64_t seed1) {
     const jj_jsonobj* j = (const jj_jsonobj*)item;
     return hashmap_sip(j->name, strlen(j->name), seed0, seed1);
 }
 
-static int ojj_comp_func(const void* a, const void* b,
-                         UJJ_MAYBE_UNUSED void* udata) {
+static int ojj_hm_comp_func(const void* a, const void* b,
+                            UJJ_MAYBE_UNUSED void* udata) {
     const jj_jsonobj* j1 = (const jj_jsonobj*)a;
     const jj_jsonobj* j2 = (const jj_jsonobj*)b;
     return strcmp(j1->name, j2->name);
 }
 
+static void ojj_hm_free_func(void* v) {
+    jj_jsonobj* j = (jj_jsonobj*)v;
+    ojj_free_innerval(j);
+}
+
 static inline hashmap* ojj_new_hashmap() {
-    return hashmap_new(sizeof(jj_jsonobj), 0, 0, 0, ojj_hash_func,
-                       ojj_comp_func, NULL, NULL);
+    return hashmap_new(sizeof(jj_jsonobj), 0, 0, 0, ojj_hm_hash_func,
+                       ojj_hm_comp_func, ojj_hm_free_func, NULL);
 }
 
 static inline void ojj_hashmap_free(hashmap* map) { hashmap_free(map); }
-
-// don't free subelements of json structure. only free the root.
-void jj_free(jj_jsonobj* root);
 
 static inline jj_jsonarrdata* ojj_newarrdata(size_t cap) {
     jj_jsonarrdata* arrdata = malloc(sizeof(jj_jsonarrdata));
@@ -99,11 +107,6 @@ static inline jj_jsonarrdata* ojj_newarrdata(size_t cap) {
     arrdata->cap = cap;
     arrdata->arr = malloc(sizeof(jj_jsonobj) * cap);
     return arrdata;
-}
-
-static inline void ojj_arrfree(jj_jsonarrdata* arr) {
-    free(arr->arr);
-    free(arr);
 }
 
 static inline int ojj_arrresize(jj_jsonarrdata* arr, size_t size) {
@@ -116,7 +119,11 @@ static inline int ojj_arrresize(jj_jsonarrdata* arr, size_t size) {
     return 0;
 }
 
+// takes ownership of obj.
 static inline int ojj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
+    if (!obj) {
+        return -1;
+    }
     if (arr->length + 1 >= arr->cap) {
         if (ojj_arrresize(arr, (arr->length + 1) << 1) != 0) {
             return -1;
@@ -124,6 +131,7 @@ static inline int ojj_arrappend(jj_jsonarrdata* arr, jj_jsonobj* obj) {
     }
     memcpy(arr->arr + arr->length, obj, sizeof(jj_jsonobj));
     arr->length++;
+    free(obj);  // since I make a shallow copy of it
     return 0;
 }
 
@@ -182,7 +190,10 @@ static inline void jj_setname(jj_jsonobj* json, const char* const name) {
 
 // if name is NULL then it's root
 UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_new_empty_obj(const char* name) {
-    jj_jsonobj* val = OJJ_MALLOC_NEW_JSONOBJ();
+    jj_jsonobj* val = (jj_jsonobj*)malloc(sizeof(jj_jsonobj));
+    if (!val) {
+        return NULL;
+    }
     OJJ_JSONOBJ_INIT_SETNAME(val, name);
     return val;
 }
@@ -274,7 +285,8 @@ UJJ_MAYBE_UNUSED static inline jj_jsontype_str jj_agetstr(jj_jsonobj* obj,
     return ujj_clonestr(s, strlen(s));
 }
 
-// return true if success, false if obj is not array or append fails
+// Takes ownership of val and all its children. Return true if success, false if
+// obj is not array or append fails
 UJJ_MAYBE_UNUSED static inline bool jj_aappend(jj_jsonobj* obj,
                                                jj_jsonobj* val) {
     if (!jj_is_json_type(obj, JJ_VALTYPE_ARR)) {
