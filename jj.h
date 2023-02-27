@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "charvec.h"
 #include "hashmap.c/hashmap.h"
 
 typedef struct hashmap hashmap;
@@ -150,7 +151,7 @@ static inline jj_jsontype_str ujj_clonestr(jj_jsontype_str orig, size_t len) {
         return NULL;                         \
     }
 
-// ***************************** exposed api *****************************
+// ***************************** exposed apis *****************************
 
 UJJ_MAYBE_UNUSED static inline bool jj_is_json_root(jj_jsonobj* json) {
     return json->name == NULL;
@@ -313,7 +314,18 @@ UJJ_MAYBE_UNUSED static inline bool jj_isnull(jj_jsonobj* obj) {
 // returns true if success, false if not of type bool.
 OJJ_GENFUNC_OGET_ASTYPE(bool, JJ_VALTYPE_BOOL)
 // returns true if success, false if not of type int.
-OJJ_GENFUNC_OGET_ASTYPE(int, JJ_VALTYPE_INT)
+// OJJ_GENFUNC_OGET_ASTYPE(int, JJ_VALTYPE_INT)
+UJJ_MAYBE_UNUSED static inline bool jj_ogetint(jj_jsonobj* obj,
+                                               const char* name,
+                                               jj_jsontype_int* result) {
+    jj_jsonobj* ref = jj_oget(obj, name);
+    if (!jj_is_json_type(ref, 3)) {
+        return false;
+    }
+    *result = ref->data.intval;
+    return true;
+}
+
 // returns true if success, false if not of type float.
 OJJ_GENFUNC_OGET_ASTYPE(float, JJ_VALTYPE_FLOAT)
 // returns a reference of string for this object, or NULL if not of type string.
@@ -342,6 +354,9 @@ UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_ogetarridx(jj_jsonobj* obj,
     return jj_aget(a, idx);
 }
 
+UJJ_MAYBE_UNUSED char* jj_otostr(jj_jsonobj* obj, int indent, bool sp,
+                                 bool formatted);
+
 // ***************************** parsing *****************************
 
 typedef uint16_t ljj_token_type;
@@ -362,9 +377,10 @@ typedef struct ljj_lexstate {
     size_t cur_idx;
     size_t line;
     size_t col;
-    char* strbuf;
-    size_t buflen;
-    size_t bufcap;
+    // char* strbuf;
+    // size_t buflen;
+    // size_t bufcap;
+    charvec* strbuf;
     ljj_token_type curtoken;
 } ljj_lexstate;
 
@@ -456,16 +472,17 @@ static inline ljj_lexstate* ljj_new_lexstate(const char* original,
     s->length = length;
     s->line = 1;
     s->col = 1;
-    s->buflen = 0;
-    s->bufcap = 15;
-    s->strbuf = malloc(s->bufcap);
+    // s->buflen = 0;
+    // s->bufcap = 15;
+    // s->strbuf = malloc(s->bufcap);
+    s->strbuf = charvec_new(15);
     s->cur_idx = 0;
     s->curtoken = 0;
     return s;
 }
 
 static inline void ljj_free_lexstate(ljj_lexstate* s) {
-    free(s->strbuf);
+    charvec_free(s->strbuf);
     free(s);
 }
 
@@ -482,29 +499,48 @@ static inline bool ljj_lexstate_isatend(ljj_lexstate* s) {
     return s->cur_idx >= s->length;
 }
 
+static inline size_t ljj_lexstate_buflen(ljj_lexstate* s) {
+    return charvec_len(s->strbuf);
+}
+
+static inline size_t ljj_lexstate_bufcap(ljj_lexstate* s) {
+    return s->strbuf->cap;
+}
+
+static inline char ljj_lexstate_getc(ljj_lexstate* s, size_t idx) {
+    return charvec_get(s->strbuf, idx);
+}
+
+static inline char* ljj_lexstate_buf(ljj_lexstate* s) { return s->strbuf->buf; }
+
 static inline bool ljj_lexstate_bufequals(ljj_lexstate* s, const char* other,
                                           size_t cnt) {
-    return s->buflen == cnt && strncmp(s->strbuf, other, cnt) == 0;
+    // return s->buflen == cnt && strncmp(s->strbuf, other, cnt) == 0;
+    return ljj_lexstate_buflen(s) == cnt &&
+           strncmp(ljj_lexstate_buf(s), other, cnt) == 0;
 }
 
-static inline void ljj_lexstate_resize_strbuf(ljj_lexstate* s) {
-    if (s->buflen + 1 >= s->bufcap) {
-        size_t cap = (s->buflen + 1) << 1;
-        char* new = realloc(s->strbuf, cap);
-        if (!new) {
-            exit(114514);
-        }
-        s->strbuf = new;
-        s->bufcap = cap;
-    }
-}
+// static inline void ljj_lexstate_resize_strbuf(ljj_lexstate* s) {
+//     if (s->buflen + 1 >= s->bufcap) {
+//         size_t cap = (s->buflen + 1) << 1;
+//         char* new = realloc(s->strbuf, cap);
+//         if (!new) {
+//             exit(114514);
+//         }
+//         s->strbuf = new;
+//         s->bufcap = cap;
+//     }
+// }
 
-static inline void ljj_lexstate_clear_strbuf(ljj_lexstate* s) { s->buflen = 0; }
+static inline void ljj_lexstate_clear_strbuf(ljj_lexstate* s) {
+    charvec_clear(s->strbuf);
+}
 
 static inline void ljj_lexstate_append_strbuf(ljj_lexstate* s, char c) {
-    ljj_lexstate_resize_strbuf(s);
-    s->strbuf[s->buflen] = c;
-    s->buflen++;
+    // ljj_lexstate_resize_strbuf(s);
+    // s->strbuf[s->buflen] = c;
+    // s->buflen++;
+    charvec_append(s->strbuf, c);
 }
 
 static inline void ljj_lexstate_err(ljj_lexstate* s) {
@@ -519,8 +555,8 @@ static inline void ljj_lexstate_err(ljj_lexstate* s) {
         return;
     }
     ljj_lexstate_append_strbuf(s, '\0');
-    fprintf(stderr, "Invalid token '%s' at line %zu col %zu\n", s->strbuf,
-            s->line, s->col - s->buflen + 1);
+    fprintf(stderr, "Invalid token '%s' at line %zu col %zu\n", s->strbuf->buf,
+            s->line, s->col - ljj_lexstate_buflen(s) + 1);
 }
 
 #define LJJ_LEXSTATE_ERR(state) \

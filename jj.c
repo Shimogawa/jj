@@ -102,11 +102,11 @@ static void ljj_lex_read_val(ljj_lexstate* state) {
         ljj_lexstate_append_strbuf(state, cur);
         ljj_lexstate_nextchar(state);
     }
-    if (state->buflen == 0) {
+    if (ljj_lexstate_buflen(state) == 0) {
         state->curtoken = LJJ_TOKEN_INVALID;
         return;
     }
-    if (state->strbuf[0] == '+') {
+    if (ljj_lexstate_getc(state, 0) == '+') {
         state->curtoken = LJJ_TOKEN_INVALID;
         return;
     }
@@ -123,7 +123,8 @@ static void ljj_lex_read_val(ljj_lexstate* state) {
         return;
     }
     bool isinvalid;
-    if (ujj_str_isjsonint(state->strbuf, state->buflen, &isinvalid)) {
+    if (ujj_str_isjsonint(ljj_lexstate_buf(state), ljj_lexstate_buflen(state),
+                          &isinvalid)) {
         if (isinvalid) {
             state->curtoken = LJJ_TOKEN_INVALID;
             return;
@@ -131,7 +132,8 @@ static void ljj_lex_read_val(ljj_lexstate* state) {
         state->curtoken = LJJ_TOKEN_INT;
         return;
     }
-    if (!ujj_str_isvalidjsonfloat(state->strbuf, state->buflen)) {
+    if (!ujj_str_isvalidjsonfloat(ljj_lexstate_buf(state),
+                                  ljj_lexstate_buflen(state))) {
         state->curtoken = LJJ_TOKEN_INVALID;
         return;
     }
@@ -157,7 +159,8 @@ static void ljj_lex_next(ljj_lexstate* state) {
 }
 
 static jj_jsontype_str ljj_lexstate_getstr(ljj_lexstate* state) {
-    return ujj_clonestr(state->strbuf, state->buflen);
+    // return ujj_clonestr(ljj_lexstate_buf(state), ljj_lexstate_buflen(state));
+    return charvec_tostr(state->strbuf);
 }
 
 static bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result) {
@@ -165,7 +168,7 @@ static bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result) {
     if (!buf) return false;
     char* pend;
     jj_jsontype_int res = strtoll(buf, &pend, 10);
-    if (pend != buf + state->buflen) {
+    if (pend != buf + ljj_lexstate_buflen(state)) {
         free(buf);
         return false;
     }
@@ -178,7 +181,7 @@ bool ljj_lexstate_getfloat(ljj_lexstate* state, jj_jsontype_float* result) {
     char* buf = ljj_lexstate_getstr(state);
     char* pend;
     jj_jsontype_float res = strtold(buf, &pend);
-    if (pend != buf + state->buflen) {
+    if (pend != buf + ljj_lexstate_buflen(state)) {
         free(buf);
         return false;
     }
@@ -333,4 +336,8 @@ jj_jsonobj* jj_parse(const char* json_str, uint32_t length) {
     }
     ljj_free_lexstate(state);
     return root;
+}
+
+char* jj_otostr(jj_jsonobj* obj, int indent, bool sp, bool formatted) {
+    // ljj_
 }
