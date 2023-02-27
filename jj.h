@@ -2,6 +2,7 @@
 #define JJ_H
 
 #include <ctype.h>
+#include <errno.h>
 #include <memory.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -314,18 +315,7 @@ UJJ_MAYBE_UNUSED static inline bool jj_isnull(jj_jsonobj* obj) {
 // returns true if success, false if not of type bool.
 OJJ_GENFUNC_OGET_ASTYPE(bool, JJ_VALTYPE_BOOL)
 // returns true if success, false if not of type int.
-// OJJ_GENFUNC_OGET_ASTYPE(int, JJ_VALTYPE_INT)
-UJJ_MAYBE_UNUSED static inline bool jj_ogetint(jj_jsonobj* obj,
-                                               const char* name,
-                                               jj_jsontype_int* result) {
-    jj_jsonobj* ref = jj_oget(obj, name);
-    if (!jj_is_json_type(ref, 3)) {
-        return false;
-    }
-    *result = ref->data.intval;
-    return true;
-}
-
+OJJ_GENFUNC_OGET_ASTYPE(int, JJ_VALTYPE_INT)
 // returns true if success, false if not of type float.
 OJJ_GENFUNC_OGET_ASTYPE(float, JJ_VALTYPE_FLOAT)
 // returns a reference of string for this object, or NULL if not of type string.
@@ -419,18 +409,26 @@ static inline bool ujj_str_contains_s(const char* s, size_t len, char c) {
     return false;
 }
 
-static inline bool ujj_str_isjsonint(const char* s, const size_t len,
-                                     bool* isinvalid) {
+static inline bool ujj_str_isjsonint(const char* s, const size_t len) {
     size_t i = 0;
-    *isinvalid = false;
     if (s[i] == '-') i++;
-    if (s[i] == '0' && len != 1) {  // if not a single 0
-        *isinvalid = true;
+    if (len - i > 19) {
         return false;
     }
-    for (; i < len; i++) {
-        if (s[i] == 0) return true;
-        if (!isdigit(s[i])) return false;
+    if (s[i] == '0' && len != 1) {  // if not a single 0
+        return false;
+    }
+    // for (; i < len; i++) {
+    //     if (s[i] == 0) return true;
+    //     if (!isdigit(s[i])) return false;
+    // }
+    char* pend;
+    strtoll(s, &pend, 10);
+    if (errno == ERANGE) {
+        return false;
+    }
+    if (pend != s + len) {
+        return false;
     }
     return true;
 }
@@ -441,7 +439,8 @@ static inline bool ujj_str_isvalidjsonfloat(const char* s, const size_t len) {
     while (i < len && isdigit(s[i])) {
         i++;
     }
-    if (s[i++] == '.') {
+    if (s[i] == '.') {
+        i++;
         while (i < len && isdigit(s[i])) {
             i++;
         }
@@ -590,6 +589,13 @@ static bool ljj_lexstate_getfloat(ljj_lexstate* state,
                                   jj_jsontype_float* result);
 static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state, const char* name);
 static jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state, const char* name);
+
+void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth, int indent,
+                    bool sp, bool formatted, bool inarr);
+int sjj_tostr_jdata(jj_jsonobj* obj, charvec* strbuf, int depth, int indent,
+                    bool sp, bool formatted, bool inarr);
+int sjj_tostr(jj_jsonobj* obj, charvec* strbuf, int depth, int indent, bool sp,
+              bool formatted, bool inarr);
 
 jj_jsonobj* jj_parse(const char* json_str, uint32_t length);
 

@@ -4,7 +4,7 @@ int main() {
     const char* j =
         "{\"a\": \"1\", \n \"b\": 2,\n\t\"c\": true\t,\n\"d\": "
         "3.1415926e+3,\"h\": {\"h1\": \"this is h1\"},\n \"i\": [true, "
-        "114.514, 114514, \"hi\", {\"i1\": 3, \"i2\": [\"nest\"]}]}";
+        "114.514, 114514, \"hi\", {\"i1\": 3, \"i2\": [\"nest\"]}, null]}";
     jj_jsonobj* jobj = jj_parse(j, strlen(j));
     if (!jobj) {
         fprintf(stderr, "Error\n");
@@ -42,6 +42,14 @@ int main() {
     s = jj_agetstrref(jj_oget(iobj, "i2"), 0);
     printf("i@4.i2@0: %s\n", s);
 
+    jj_free(jobj);
+
+    j = "{\"a\": 3, \"b\": \"str\", \"c\": 3e10, \"d\": {\"da\": \"str2\", "
+        "\"db\": 3.1415}, \"e\": [1, 2.5e3, null, true, \"hi\", { }, []]}";
+    jobj = jj_parse(j, strlen(j));
+    s = jj_otostr(jobj, 2, true, true);
+    printf("%s\n", s);
+    free(s);
     jj_free(jobj);
     return 0;
 }

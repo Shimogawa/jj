@@ -122,22 +122,19 @@ static void ljj_lex_read_val(ljj_lexstate* state) {
         state->curtoken = LJJ_TOKEN_FALSE;
         return;
     }
-    bool isinvalid;
-    if (ujj_str_isjsonint(ljj_lexstate_buf(state), ljj_lexstate_buflen(state),
-                          &isinvalid)) {
-        if (isinvalid) {
-            state->curtoken = LJJ_TOKEN_INVALID;
-            return;
-        }
+    char* b = charvec_tostr(state->strbuf);
+    if (ujj_str_isjsonint(b, ljj_lexstate_buflen(state))) {
         state->curtoken = LJJ_TOKEN_INT;
+        free(b);
         return;
     }
-    if (!ujj_str_isvalidjsonfloat(ljj_lexstate_buf(state),
-                                  ljj_lexstate_buflen(state))) {
-        state->curtoken = LJJ_TOKEN_INVALID;
+    free(b);
+    if (ujj_str_isvalidjsonfloat(ljj_lexstate_buf(state),
+                                 ljj_lexstate_buflen(state))) {
+        state->curtoken = LJJ_TOKEN_FLOAT;
         return;
     }
-    state->curtoken = LJJ_TOKEN_FLOAT;
+    state->curtoken = LJJ_TOKEN_INVALID;
 }
 
 static void ljj_lex_next(ljj_lexstate* state) {
@@ -168,7 +165,7 @@ static bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result) {
     if (!buf) return false;
     char* pend;
     jj_jsontype_int res = strtoll(buf, &pend, 10);
-    if (pend != buf + ljj_lexstate_buflen(state)) {
+    if (errno == ERANGE || pend != buf + ljj_lexstate_buflen(state)) {
         free(buf);
         return false;
     }
@@ -196,6 +193,9 @@ jj_jsonobj* ljj_lexstate_parsenode(ljj_lexstate* state,  // NOLINT
                                    jj_jsonobj* root, const char* name) {
     jj_jsonobj* new = NULL;
     switch (state->curtoken) {
+        case LJJ_TOKEN_NULL:
+            new = jj_new_jsonnull(name);
+            break;
         case LJJ_TOKEN_TRUE:
             new = jj_new_jsonbool(name, JJ_JSON_TRUE);
             break;
@@ -258,6 +258,9 @@ static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state,  // NOLINT
     while (true) {
         free(propname);
         ljj_lex_next(state);
+        if (state->curtoken == '}') {
+            break;
+        }
         if (state->curtoken != LJJ_TOKEN_STR) {
             state->curtoken = LJJ_TOKEN_INVALID;
             free(root);
@@ -297,6 +300,9 @@ static jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state,  // NOLINT
     jj_jsonobj* root = jj_new_jsonarr(name);
     while (true) {
         ljj_lex_next(state);
+        if (state->curtoken == ']') {
+            break;
+        }
         jj_jsonobj* obj = ljj_lexstate_parsenode(state, NULL, NULL);
         if (!obj) {
             jj_free(root);
@@ -338,6 +344,190 @@ jj_jsonobj* jj_parse(const char* json_str, uint32_t length) {
     return root;
 }
 
+void sjj_tostr_putsp(charvec* strbuf, int depth, int indent, bool formatted) {
+    if (formatted) {
+        for (int i = 0; i < depth; i++) {
+            for (int j = 0; j < indent; j++) {
+                charvec_append(strbuf, ' ');
+            }
+        }
+    }
+}
+
+void sjj_tostr_str(charvec* strbuf, char* data, int depth, int indent,
+                   bool formatted) {
+    charvec_append(strbuf, '"');
+    charvec_appendn(strbuf, data, strlen(data));
+    charvec_append(strbuf, '"');
+}
+
+void sjj_tostr_jstr(charvec* strbuf, jj_jsondata data, int depth, int indent,
+                    bool formatted, bool inarr) {
+    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    sjj_tostr_str(strbuf, data.strval, depth, indent, formatted);
+}
+
+void sjj_tostr_jbool(charvec* strbuf, jj_jsondata data, int depth, int indent,
+                     bool formatted, bool inarr) {
+    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    charvec_appendn(strbuf, data.boolval ? "true" : "false",
+                    data.boolval ? 4 : 5);
+}
+
+void sjj_tostr_jint(charvec* strbuf, jj_jsondata data, int depth, int indent,
+                    bool formatted, bool inarr) {
+    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    char buf[30];
+    int len = sprintf(buf, "%lld", data.intval);
+    charvec_appendn(strbuf, buf, len);
+}
+
+void sjj_tostr_jfloat(charvec* strbuf, jj_jsondata data, int depth, int indent,
+                      bool formatted, bool inarr) {
+    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    char buf[30];
+    int len = sprintf(buf, "%.17Lg", data.floatval);
+    charvec_appendn(strbuf, buf, len);
+}
+
+void sjj_tostr_jnull(charvec* strbuf, int depth, int indent, bool formatted,
+                     bool inarr) {
+    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    charvec_appendn(strbuf, "null", 4);
+}
+
+void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth, int indent,
+                    bool sp, bool formatted, bool inarr) {
+    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    size_t cnt = hashmap_count(data.objval);
+    if (cnt == 0) {
+        charvec_appendn(strbuf, "{}", 2);
+        return;
+    }
+    charvec_append(strbuf, '{');
+    if (formatted) {
+        charvec_append(strbuf, '\n');
+    }
+    size_t i = 0;
+    jj_jsonobj* obj;
+    size_t cur = 0;
+    while (hashmap_iter(data.objval, &i, (void**)&obj)) {
+        cur++;
+        sjj_tostr(obj, strbuf, depth + 1, indent, sp, formatted, false);
+        if (cur == cnt) {
+            break;
+        }
+        charvec_append(strbuf, ',');
+        if (formatted) {
+            charvec_append(strbuf, '\n');
+        } else if (sp) {
+            charvec_append(strbuf, ' ');
+        }
+    }
+    if (formatted) {
+        charvec_append(strbuf, '\n');
+        for (int i = 0; i < depth; i++) {
+            for (int j = 0; j < indent; j++) {
+                charvec_append(strbuf, ' ');
+            }
+        }
+    }
+    charvec_append(strbuf, '}');
+}
+
+void sjj_tostr_jarr(charvec* strbuf, jj_jsondata data, int depth, int indent,
+                    bool sp, bool formatted, bool inarr) {
+    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    if (data.arrval->length == 0) {
+        charvec_appendn(strbuf, "[]", 2);
+        return;
+    }
+    charvec_append(strbuf, '[');
+    if (formatted) {
+        charvec_append(strbuf, '\n');
+    }
+    // TODO: if arr is short, put it in one line.
+    jj_jsonobj* obj;
+    size_t i = 0;
+    while (true) {
+        sjj_tostr(data.arrval->arr + i, strbuf, depth + 1, indent, sp,
+                  formatted, true);
+        if (i == data.arrval->length - 1) {
+            break;
+        }
+        charvec_append(strbuf, ',');
+        if (formatted) {
+            charvec_append(strbuf, '\n');
+        } else if (sp) {
+            charvec_append(strbuf, ' ');
+        }
+        i++;
+    }
+    if (formatted) {
+        charvec_append(strbuf, '\n');
+        for (int i = 0; i < depth; i++) {
+            for (int j = 0; j < indent; j++) {
+                charvec_append(strbuf, ' ');
+            }
+        }
+    }
+    charvec_append(strbuf, ']');
+}
+
+int sjj_tostr_jdata(jj_jsonobj* obj, charvec* strbuf, int depth, int indent,
+                    bool sp, bool formatted, bool inarr) {
+    switch (obj->type) {
+        case JJ_VALTYPE_BOOL:
+            sjj_tostr_jbool(strbuf, obj->data, depth, indent, formatted, inarr);
+            break;
+        case JJ_VALTYPE_STR:
+            sjj_tostr_jstr(strbuf, obj->data, depth, indent, formatted, inarr);
+            break;
+        case JJ_VALTYPE_INT:
+            sjj_tostr_jint(strbuf, obj->data, depth, indent, formatted, inarr);
+            break;
+        case JJ_VALTYPE_FLOAT:
+            sjj_tostr_jfloat(strbuf, obj->data, depth, indent, formatted,
+                             inarr);
+            break;
+        case JJ_VALTYPE_NULL:
+            sjj_tostr_jnull(strbuf, depth, indent, formatted, inarr);
+            break;
+        case JJ_VALTYPE_OBJ:
+            sjj_tostr_jobj(strbuf, obj->data, depth, indent, sp, formatted,
+                           inarr);
+            break;
+        case JJ_VALTYPE_ARR:
+            sjj_tostr_jarr(strbuf, obj->data, depth, indent, sp, formatted,
+                           inarr);
+            break;
+        default:
+            return 1;
+    }
+    return 0;
+}
+
+int sjj_tostr(jj_jsonobj* obj, charvec* strbuf, int depth, int indent, bool sp,
+              bool formatted, bool inarr) {
+    if (obj->name != NULL) {
+        sjj_tostr_putsp(strbuf, depth, indent, formatted);
+        sjj_tostr_str(strbuf, obj->name, depth, indent, formatted);
+        charvec_append(strbuf, ':');
+        if (sp) {
+            charvec_append(strbuf, ' ');
+        }
+    }
+    return sjj_tostr_jdata(obj, strbuf, depth, indent, sp, formatted, inarr);
+}
+
 char* jj_otostr(jj_jsonobj* obj, int indent, bool sp, bool formatted) {
-    // ljj_
+    charvec* strbuf = charvec_new(30);
+    int ret = sjj_tostr(obj, strbuf, 0, indent, sp, formatted, false);
+    if (ret != 0) {
+        charvec_free(strbuf);
+        return NULL;
+    }
+    char* str = charvec_tostr(strbuf);
+    charvec_free(strbuf);
+    return str;
 }
