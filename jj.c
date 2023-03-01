@@ -407,6 +407,57 @@ jj_jsonobj* jj_parse(const char* json_str, uint32_t length) {
     return root;
 }
 
+static inline void sjj_tostr_appendesc(charvec* strbuf, char c) {
+    switch (c) {
+        case '"':
+            charvec_appendn(strbuf, "\\\"", 2);
+            break;
+        case '\\':
+            charvec_appendn(strbuf, "\\\\", 2);
+            break;
+        case '\b':
+            charvec_appendn(strbuf, "\\b", 2);
+            break;
+        case '\f':
+            charvec_appendn(strbuf, "\\f", 2);
+            break;
+        case '\n':
+            charvec_appendn(strbuf, "\\n", 2);
+            break;
+        case '\r':
+            charvec_appendn(strbuf, "\\r", 2);
+            break;
+        case '\t':
+            charvec_appendn(strbuf, "\\t", 2);
+            break;
+        default:
+            charvec_append(strbuf, c);
+            break;
+    }
+}
+
+static inline bool sjj_tostr_escunic(charvec* strbuf, char* data) {
+    int cp = 0;
+    uint8_t readlen;
+    while ((cp = ujj_utf8_to_unicode(data, &readlen)) != 0) {
+        if (cp < 0) {
+            return false;
+        }
+        if (readlen == 1) {
+            sjj_tostr_appendesc(strbuf, *data);
+        } else if (readlen >= 4) {
+            charvec_appendn(strbuf, data, readlen);
+        } else {
+            char tmp[5];
+            charvec_appendn(strbuf, "\\u", 2);
+            sprintf(tmp, "%04x", cp);
+            charvec_appendn(strbuf, tmp, 4);
+        }
+        data += readlen;
+    }
+    return true;
+}
+
 void sjj_tostr_putindent(charvec* strbuf, int depth, jj_tostr_config* config) {
     if (config->formatted) {
         for (int i = 0; i < depth; i++) {
@@ -420,7 +471,14 @@ void sjj_tostr_putindent(charvec* strbuf, int depth, jj_tostr_config* config) {
 void sjj_tostr_str(charvec* strbuf, char* data, int depth,
                    jj_tostr_config* config) {
     charvec_append(strbuf, '"');
-    charvec_appendn(strbuf, data, strlen(data));
+    if (config->esc_unic) {
+        sjj_tostr_escunic(strbuf, data);
+    } else {
+        while (*data != 0) {
+            sjj_tostr_appendesc(strbuf, *data);
+            data++;
+        }
+    }
     charvec_append(strbuf, '"');
 }
 

@@ -74,9 +74,10 @@ struct jj_jsonobj {
 };
 
 struct jj_tostr_config {
-    int indent;     /** number of spaces for indentation when formatted */
     bool sp;        /** if space is needed when formatted is false */
     bool formatted; /** if formatted */
+    bool esc_unic;  /** if escape unicode chars to \uxxxx */
+    int indent;     /** number of spaces for indentation when formatted */
 };
 
 // don't free subelements of json structure. only free the root.
@@ -487,6 +488,38 @@ static inline bool ujj_unicode_to_utf8(charvec* strbuf, int c) {
         return false;
     }
     return true;
+}
+
+/**
+ * return -1 if first byte is invalid, -2 if continuation byte is invalid
+ */
+static inline int ujj_utf8_to_unicode(unsigned char* s, uint8_t* readlen) {
+    unsigned char first = s[0];
+    if ((first & 0x80) == 0) {
+        *readlen = 1;
+        return (int)s[0];
+    } else if (first >> 5 == 0b110) {
+        if (s[1] >> 6 != 0b10) {
+            return -2;
+        }
+        *readlen = 2;
+        return ((first & 0x1F) << 6) | (s[1] & 0x3F);
+    } else if (first >> 4 == 0b1110) {
+        if (s[1] >> 6 != 0b10 || s[2] >> 6 != 0b10) {
+            return -2;
+        }
+        *readlen = 3;
+        return ((first & 0xF) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+    } else if (first >> 3 == 0b11110) {
+        if (s[1] >> 6 != 0b10 || s[2] >> 6 != 0b10 || s[3] >> 6 != 0b10) {
+            return -2;
+        }
+        *readlen = 4;
+        return ((first & 0x7) << 18) | ((s[1] & 0x3F) << 12) |
+               ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+    } else {
+        return -1;
+    }
 }
 
 static inline ljj_lexstate* ljj_new_lexstate(const char* original,

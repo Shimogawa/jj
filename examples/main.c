@@ -48,14 +48,19 @@ int main() {
         "\"db\": 3.1415}, \"e\": [1, 2.5e3, null, true, \"hi\\u3065\", { }, "
         "[]]}";
     jobj = jj_parse(j, strlen(j));
-    jj_tostr_config cfg = {.formatted = true, .indent = 2, .sp = true};
+    jj_tostr_config cfg = {
+        .formatted = true, .indent = 2, .sp = true, .esc_unic = false};
     s = jj_tostr(jobj, &cfg);
     printf("%s\n", s);
     free(s);
     jj_free(jobj);
 
-    j = "\"\\u4f60\\u597d\"";
+    j = "\"abc\\u4f60\\u597d吗\\r\\t\\n\\\\\"";
     jobj = jj_parse(j, strlen(j));
+    s = jj_tostr(jobj, &cfg);
+    printf("%s\n", s);
+    free(s);
+    cfg.esc_unic = true;
     s = jj_tostr(jobj, &cfg);
     printf("%s\n", s);
     free(s);
