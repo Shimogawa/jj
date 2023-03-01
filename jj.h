@@ -49,6 +49,7 @@ typedef union jj_jsondata jj_jsondata;
 // if name is NULL, then it's root
 typedef struct jj_jsonobj jj_jsonobj;
 typedef struct jj_jsonarrdata jj_jsonarrdata;
+typedef struct jj_tostr_config jj_tostr_config;
 
 struct jj_jsonarrdata {
     uint32_t length;
@@ -70,6 +71,12 @@ struct jj_jsonobj {
     char* name;
 
     union jj_jsondata data;
+};
+
+struct jj_tostr_config {
+    int indent;     /** number of spaces for indentation when formatted */
+    bool sp;        /** if space is needed when formatted is false */
+    bool formatted; /** if formatted */
 };
 
 // don't free subelements of json structure. only free the root.
@@ -344,9 +351,6 @@ UJJ_MAYBE_UNUSED static inline jj_jsonobj* jj_ogetarridx(jj_jsonobj* obj,
     return jj_aget(a, idx);
 }
 
-UJJ_MAYBE_UNUSED char* jj_otostr(jj_jsonobj* obj, int indent, bool sp,
-                                 bool formatted);
-
 // ***************************** parsing *****************************
 
 typedef uint16_t ljj_token_type;
@@ -590,13 +594,14 @@ static bool ljj_lexstate_getfloat(ljj_lexstate* state,
 static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state, const char* name);
 static jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state, const char* name);
 
-void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth, int indent,
-                    bool sp, bool formatted, bool inarr);
-int sjj_tostr_jdata(jj_jsonobj* obj, charvec* strbuf, int depth, int indent,
-                    bool sp, bool formatted, bool inarr);
-int sjj_tostr(jj_jsonobj* obj, charvec* strbuf, int depth, int indent, bool sp,
-              bool formatted, bool inarr);
+void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth,
+                    jj_tostr_config* config, bool inarr);
+int sjj_tostr_jdata(jj_jsonobj* obj, charvec* strbuf, int depth,
+                    jj_tostr_config* config, bool inarr);
+int sjj_tostr(jj_jsonobj* obj, charvec* strbuf, int depth,
+              jj_tostr_config* config, bool inarr);
 
 jj_jsonobj* jj_parse(const char* json_str, uint32_t length);
+UJJ_MAYBE_UNUSED char* jj_tostr(jj_jsonobj* obj, jj_tostr_config* config);
 
 #endif  // JJ_H

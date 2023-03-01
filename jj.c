@@ -344,68 +344,68 @@ jj_jsonobj* jj_parse(const char* json_str, uint32_t length) {
     return root;
 }
 
-void sjj_tostr_putsp(charvec* strbuf, int depth, int indent, bool formatted) {
-    if (formatted) {
+void sjj_tostr_putindent(charvec* strbuf, int depth, jj_tostr_config* config) {
+    if (config->formatted) {
         for (int i = 0; i < depth; i++) {
-            for (int j = 0; j < indent; j++) {
+            for (int j = 0; j < config->indent; j++) {
                 charvec_append(strbuf, ' ');
             }
         }
     }
 }
 
-void sjj_tostr_str(charvec* strbuf, char* data, int depth, int indent,
-                   bool formatted) {
+void sjj_tostr_str(charvec* strbuf, char* data, int depth,
+                   jj_tostr_config* config) {
     charvec_append(strbuf, '"');
     charvec_appendn(strbuf, data, strlen(data));
     charvec_append(strbuf, '"');
 }
 
-void sjj_tostr_jstr(charvec* strbuf, jj_jsondata data, int depth, int indent,
-                    bool formatted, bool inarr) {
-    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
-    sjj_tostr_str(strbuf, data.strval, depth, indent, formatted);
+void sjj_tostr_jstr(charvec* strbuf, jj_jsondata data, int depth,
+                    jj_tostr_config* config, bool inarr) {
+    if (inarr) sjj_tostr_putindent(strbuf, depth, config);
+    sjj_tostr_str(strbuf, data.strval, depth, config);
 }
 
-void sjj_tostr_jbool(charvec* strbuf, jj_jsondata data, int depth, int indent,
-                     bool formatted, bool inarr) {
-    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+void sjj_tostr_jbool(charvec* strbuf, jj_jsondata data, int depth,
+                     jj_tostr_config* config, bool inarr) {
+    if (inarr) sjj_tostr_putindent(strbuf, depth, config);
     charvec_appendn(strbuf, data.boolval ? "true" : "false",
                     data.boolval ? 4 : 5);
 }
 
-void sjj_tostr_jint(charvec* strbuf, jj_jsondata data, int depth, int indent,
-                    bool formatted, bool inarr) {
-    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+void sjj_tostr_jint(charvec* strbuf, jj_jsondata data, int depth,
+                    jj_tostr_config* config, bool inarr) {
+    if (inarr) sjj_tostr_putindent(strbuf, depth, config);
     char buf[30];
     int len = sprintf(buf, "%lld", data.intval);
     charvec_appendn(strbuf, buf, len);
 }
 
-void sjj_tostr_jfloat(charvec* strbuf, jj_jsondata data, int depth, int indent,
-                      bool formatted, bool inarr) {
-    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+void sjj_tostr_jfloat(charvec* strbuf, jj_jsondata data, int depth,
+                      jj_tostr_config* config, bool inarr) {
+    if (inarr) sjj_tostr_putindent(strbuf, depth, config);
     char buf[30];
     int len = sprintf(buf, "%.17Lg", data.floatval);
     charvec_appendn(strbuf, buf, len);
 }
 
-void sjj_tostr_jnull(charvec* strbuf, int depth, int indent, bool formatted,
+void sjj_tostr_jnull(charvec* strbuf, int depth, jj_tostr_config* config,
                      bool inarr) {
-    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+    if (inarr) sjj_tostr_putindent(strbuf, depth, config);
     charvec_appendn(strbuf, "null", 4);
 }
 
-void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth, int indent,
-                    bool sp, bool formatted, bool inarr) {
-    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth,
+                    jj_tostr_config* config, bool inarr) {
+    if (inarr) sjj_tostr_putindent(strbuf, depth, config);
     size_t cnt = hashmap_count(data.objval);
     if (cnt == 0) {
         charvec_appendn(strbuf, "{}", 2);
         return;
     }
     charvec_append(strbuf, '{');
-    if (formatted) {
+    if (config->formatted) {
         charvec_append(strbuf, '\n');
     }
     size_t i = 0;
@@ -413,93 +413,81 @@ void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth, int indent,
     size_t cur = 0;
     while (hashmap_iter(data.objval, &i, (void**)&obj)) {
         cur++;
-        sjj_tostr(obj, strbuf, depth + 1, indent, sp, formatted, false);
+        sjj_tostr(obj, strbuf, depth + 1, config, false);
         if (cur == cnt) {
             break;
         }
         charvec_append(strbuf, ',');
-        if (formatted) {
+        if (config->formatted) {
             charvec_append(strbuf, '\n');
-        } else if (sp) {
+        } else if (config->sp) {
             charvec_append(strbuf, ' ');
         }
     }
-    if (formatted) {
+    if (config->formatted) {
         charvec_append(strbuf, '\n');
-        for (int i = 0; i < depth; i++) {
-            for (int j = 0; j < indent; j++) {
-                charvec_append(strbuf, ' ');
-            }
-        }
+        sjj_tostr_putindent(strbuf, depth, config);
     }
     charvec_append(strbuf, '}');
 }
 
-void sjj_tostr_jarr(charvec* strbuf, jj_jsondata data, int depth, int indent,
-                    bool sp, bool formatted, bool inarr) {
-    if (inarr) sjj_tostr_putsp(strbuf, depth, indent, formatted);
+void sjj_tostr_jarr(charvec* strbuf, jj_jsondata data, int depth,
+                    jj_tostr_config* config, bool inarr) {
+    if (inarr) sjj_tostr_putindent(strbuf, depth, config);
     if (data.arrval->length == 0) {
         charvec_appendn(strbuf, "[]", 2);
         return;
     }
     charvec_append(strbuf, '[');
-    if (formatted) {
+    if (config->formatted) {
         charvec_append(strbuf, '\n');
     }
     // TODO: if arr is short, put it in one line.
     jj_jsonobj* obj;
     size_t i = 0;
     while (true) {
-        sjj_tostr(data.arrval->arr + i, strbuf, depth + 1, indent, sp,
-                  formatted, true);
+        sjj_tostr(data.arrval->arr + i, strbuf, depth + 1, config, true);
         if (i == data.arrval->length - 1) {
             break;
         }
         charvec_append(strbuf, ',');
-        if (formatted) {
+        if (config->formatted) {
             charvec_append(strbuf, '\n');
-        } else if (sp) {
+        } else if (config->sp) {
             charvec_append(strbuf, ' ');
         }
         i++;
     }
-    if (formatted) {
+    if (config->formatted) {
         charvec_append(strbuf, '\n');
-        for (int i = 0; i < depth; i++) {
-            for (int j = 0; j < indent; j++) {
-                charvec_append(strbuf, ' ');
-            }
-        }
+        sjj_tostr_putindent(strbuf, depth, config);
     }
     charvec_append(strbuf, ']');
 }
 
-int sjj_tostr_jdata(jj_jsonobj* obj, charvec* strbuf, int depth, int indent,
-                    bool sp, bool formatted, bool inarr) {
+int sjj_tostr_jdata(jj_jsonobj* obj, charvec* strbuf, int depth,
+                    jj_tostr_config* config, bool inarr) {
     switch (obj->type) {
         case JJ_VALTYPE_BOOL:
-            sjj_tostr_jbool(strbuf, obj->data, depth, indent, formatted, inarr);
+            sjj_tostr_jbool(strbuf, obj->data, depth, config, inarr);
             break;
         case JJ_VALTYPE_STR:
-            sjj_tostr_jstr(strbuf, obj->data, depth, indent, formatted, inarr);
+            sjj_tostr_jstr(strbuf, obj->data, depth, config, inarr);
             break;
         case JJ_VALTYPE_INT:
-            sjj_tostr_jint(strbuf, obj->data, depth, indent, formatted, inarr);
+            sjj_tostr_jint(strbuf, obj->data, depth, config, inarr);
             break;
         case JJ_VALTYPE_FLOAT:
-            sjj_tostr_jfloat(strbuf, obj->data, depth, indent, formatted,
-                             inarr);
+            sjj_tostr_jfloat(strbuf, obj->data, depth, config, inarr);
             break;
         case JJ_VALTYPE_NULL:
-            sjj_tostr_jnull(strbuf, depth, indent, formatted, inarr);
+            sjj_tostr_jnull(strbuf, depth, config, inarr);
             break;
         case JJ_VALTYPE_OBJ:
-            sjj_tostr_jobj(strbuf, obj->data, depth, indent, sp, formatted,
-                           inarr);
+            sjj_tostr_jobj(strbuf, obj->data, depth, config, inarr);
             break;
         case JJ_VALTYPE_ARR:
-            sjj_tostr_jarr(strbuf, obj->data, depth, indent, sp, formatted,
-                           inarr);
+            sjj_tostr_jarr(strbuf, obj->data, depth, config, inarr);
             break;
         default:
             return 1;
@@ -507,22 +495,22 @@ int sjj_tostr_jdata(jj_jsonobj* obj, charvec* strbuf, int depth, int indent,
     return 0;
 }
 
-int sjj_tostr(jj_jsonobj* obj, charvec* strbuf, int depth, int indent, bool sp,
-              bool formatted, bool inarr) {
+int sjj_tostr(jj_jsonobj* obj, charvec* strbuf, int depth,
+              jj_tostr_config* config, bool inarr) {
     if (obj->name != NULL) {
-        sjj_tostr_putsp(strbuf, depth, indent, formatted);
-        sjj_tostr_str(strbuf, obj->name, depth, indent, formatted);
+        sjj_tostr_putindent(strbuf, depth, config);
+        sjj_tostr_str(strbuf, obj->name, depth, config);
         charvec_append(strbuf, ':');
-        if (sp) {
+        if (config->sp) {
             charvec_append(strbuf, ' ');
         }
     }
-    return sjj_tostr_jdata(obj, strbuf, depth, indent, sp, formatted, inarr);
+    return sjj_tostr_jdata(obj, strbuf, depth, config, inarr);
 }
 
-char* jj_otostr(jj_jsonobj* obj, int indent, bool sp, bool formatted) {
+char* jj_tostr(jj_jsonobj* obj, jj_tostr_config* config) {
     charvec* strbuf = charvec_new(30);
-    int ret = sjj_tostr(obj, strbuf, 0, indent, sp, formatted, false);
+    int ret = sjj_tostr(obj, strbuf, 0, config, false);
     if (ret != 0) {
         charvec_free(strbuf);
         return NULL;

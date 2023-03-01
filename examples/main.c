@@ -14,7 +14,7 @@ int main() {
     printf("a: %s\n", s);
     jj_jsontype_int i;
     jj_ogetint(jobj, "b", &i);
-    printf("b: %lld\n", i);
+    printf("b: %ld\n", i);
     jj_jsontype_bool b;
     jj_ogetbool(jobj, "c", &b);
     printf("c: %d\n", b);
@@ -32,13 +32,13 @@ int main() {
     jj_agetfloat(iarr, 1, &f);
     printf("i@1: %Lf\n", f);
     jj_agetint(iarr, 2, &i);
-    printf("i@2: %lld\n", i);
+    printf("i@2: %ld\n", i);
     s = jj_agetstrref(iarr, 3);
     printf("i@3: %s\n", s);
 
     jj_jsonobj* iobj = jj_aget(iarr, 4);
     jj_ogetint(iobj, "i1", &i);
-    printf("i@4.i1: %lld\n", i);
+    printf("i@4.i1: %ld\n", i);
     s = jj_agetstrref(jj_oget(iobj, "i2"), 0);
     printf("i@4.i2@0: %s\n", s);
 
@@ -47,7 +47,8 @@ int main() {
     j = "{\"a\": 3, \"b\": \"str\", \"c\": 3e10, \"d\": {\"da\": \"str2\", "
         "\"db\": 3.1415}, \"e\": [1, 2.5e3, null, true, \"hi\", { }, []]}";
     jobj = jj_parse(j, strlen(j));
-    s = jj_otostr(jobj, 2, true, true);
+    jj_tostr_config cfg = {.formatted = true, .indent = 2, .sp = true};
+    s = jj_tostr(jobj, &cfg);
     printf("%s\n", s);
     free(s);
     jj_free(jobj);
