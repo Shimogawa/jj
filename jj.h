@@ -365,8 +365,10 @@ typedef uint16_t ljj_token_type;
 #define LJJ_TOKEN_EOF     0x8000
 
 typedef struct ljj_lexstate {
-    const char* original;
+    ljj_token_type curtoken;
+    bool instr;
     uint32_t length;
+    const char* original;
 
     size_t cur_idx;
     size_t line;
@@ -375,7 +377,6 @@ typedef struct ljj_lexstate {
     // size_t buflen;
     // size_t bufcap;
     charvec* strbuf;
-    ljj_token_type curtoken;
 } ljj_lexstate;
 
 #define LJJ_LEXSTATE_CURCHAR(state) (state)->original[(state)->cur_idx]
@@ -465,6 +466,29 @@ static inline bool ujj_str_isvalidjsonfloat(const char* s, const size_t len) {
     return i == len;
 }
 
+static inline bool ujj_unicode_to_utf8(charvec* strbuf, int c) {
+    if (c < 0x80)
+        charvec_append(strbuf, (char)c);
+    else if (c < 0x800) {
+        charvec_append(strbuf, (char)(192 + c / 64));
+        charvec_append(strbuf, (char)(128 + c % 64));
+    } else if (c - 0xd800u < 0x800) {
+        return false;
+    } else if (c < 0x10000) {
+        charvec_append(strbuf, (char)(224 + c / 4096));
+        charvec_append(strbuf, (char)(128 + c / 64 % 64));
+        charvec_append(strbuf, (char)(128 + c % 64));
+    } else if (c < 0x110000) {
+        charvec_append(strbuf, (char)(240 + c / 262144));
+        charvec_append(strbuf, (char)(128 + c / 4096 % 64));
+        charvec_append(strbuf, (char)(128 + c / 64 % 64));
+        charvec_append(strbuf, (char)(128 + c % 64));
+    } else {
+        return false;
+    }
+    return true;
+}
+
 static inline ljj_lexstate* ljj_new_lexstate(const char* original,
                                              const uint32_t length) {
     ljj_lexstate* s = malloc(sizeof(ljj_lexstate));
@@ -490,7 +514,7 @@ static inline void ljj_free_lexstate(ljj_lexstate* s) {
 }
 
 static inline void ljj_lexstate_nextchar(ljj_lexstate* s) {
-    if (s->original[s->cur_idx] == '\n') {
+    if (!s->instr && s->original[s->cur_idx] == '\n') {
         s->line++;
         s->col = 0;
     }
@@ -583,16 +607,15 @@ static void ljj_lex_skip_whitespace(ljj_lexstate* state) {
     }
 }
 
-static void ljj_lex_read_str(ljj_lexstate* state);
-static void ljj_lex_read_val(ljj_lexstate* state);
-static void ljj_lex_next(ljj_lexstate* state);
+void ljj_lex_read_str(ljj_lexstate* state);
+void ljj_lex_read_val(ljj_lexstate* state);
+void ljj_lex_next(ljj_lexstate* state);
 // returns a newly allocated string, or null if not able to
-static jj_jsontype_str ljj_lexstate_getstr(ljj_lexstate* state);
-static bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result);
-static bool ljj_lexstate_getfloat(ljj_lexstate* state,
-                                  jj_jsontype_float* result);
-static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state, const char* name);
-static jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state, const char* name);
+jj_jsontype_str ljj_lexstate_getstr(ljj_lexstate* state);
+bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result);
+bool ljj_lexstate_getfloat(ljj_lexstate* state, jj_jsontype_float* result);
+jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state, const char* name);
+jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state, const char* name);
 
 void sjj_tostr_jobj(charvec* strbuf, jj_jsondata data, int depth,
                     jj_tostr_config* config, bool inarr);

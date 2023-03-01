@@ -45,9 +45,17 @@ int main() {
     jj_free(jobj);
 
     j = "{\"a\": 3, \"b\": \"str\", \"c\": 3e10, \"d\": {\"da\": \"str2\", "
-        "\"db\": 3.1415}, \"e\": [1, 2.5e3, null, true, \"hi\", { }, []]}";
+        "\"db\": 3.1415}, \"e\": [1, 2.5e3, null, true, \"hi\\u3065\", { }, "
+        "[]]}";
     jobj = jj_parse(j, strlen(j));
     jj_tostr_config cfg = {.formatted = true, .indent = 2, .sp = true};
+    s = jj_tostr(jobj, &cfg);
+    printf("%s\n", s);
+    free(s);
+    jj_free(jobj);
+
+    j = "\"\\u4f60\\u597d\"";
+    jobj = jj_parse(j, strlen(j));
     s = jj_tostr(jobj, &cfg);
     printf("%s\n", s);
     free(s);

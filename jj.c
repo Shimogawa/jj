@@ -59,31 +59,94 @@ void ojj_arrfree(jj_jsonarrdata* arr) {
     free(arr);
 }
 
-static void ljj_lex_read_str(ljj_lexstate* state) {
+static inline bool ljj_lex_str_escape_readunic(ljj_lexstate* state) {
+    char unic[5];
+    char cur;
+    for (int i = 0; i < 4; i++) {
+        ljj_lexstate_nextchar(state);
+        if (ljj_lexstate_isatend(state)) return false;
+        cur = LJJ_LEXSTATE_CURCHAR(state);
+        unic[i] = cur;
+    }
+    unic[4] = '\0';
+    char* pend;
+    int cp = strtol(unic, &pend, 16);
+    if (errno == ERANGE || pend != unic + 4) {
+        return false;
+    }
+    return ujj_unicode_to_utf8(state->strbuf, cp);
+}
+
+bool ljj_lex_str_escape(ljj_lexstate* state) {
+    switch (LJJ_LEXSTATE_CURCHAR(state)) {
+        case '"':
+            ljj_lexstate_append_strbuf(state, '"');
+            break;
+        case '\\':
+            ljj_lexstate_append_strbuf(state, '\\');
+            break;
+        case '/':
+            ljj_lexstate_append_strbuf(state, '/');
+            break;
+        case 'b':
+            ljj_lexstate_append_strbuf(state, '\b');
+            break;
+        case 'f':
+            ljj_lexstate_append_strbuf(state, '\f');
+            break;
+        case 'n':
+            ljj_lexstate_append_strbuf(state, '\n');
+            break;
+        case 'r':
+            ljj_lexstate_append_strbuf(state, '\r');
+            break;
+        case 't':
+            ljj_lexstate_append_strbuf(state, '\t');
+            break;
+        case 'u':
+            return ljj_lex_str_escape_readunic(state);
+        default:
+            return false;
+    }
+    return true;
+}
+
+void ljj_lex_read_str(ljj_lexstate* state) {
     ljj_lexstate_clear_strbuf(state);
     ljj_lexstate_nextchar(state);  // consume '"'
+    state->instr = true;
     char cur;
     while (true) {
         if (ljj_lexstate_isatend(state)) {
-            state->curtoken = LJJ_TOKEN_INVALID;
-            return;
+            goto ERROR;
         }
-        cur = state->original[state->cur_idx];
+        cur = LJJ_LEXSTATE_CURCHAR(state);
         ljj_lexstate_nextchar(state);
         if (ujj_is_char_oneof(cur, "\r\n")) {
-            state->curtoken = LJJ_TOKEN_INVALID;
-            return;
+            ljj_lexstate_append_strbuf(state, cur);
+            goto ERROR;
         }
         if (cur == '"') {
             break;
         }
-        // TODO: parse escapes
+        if (cur == '\\') {
+            if (ljj_lex_str_escape(state)) {
+                ljj_lexstate_nextchar(state);  // consume the char
+                continue;
+            }
+            goto ERROR;
+        }
         ljj_lexstate_append_strbuf(state, cur);
     }
+    state->instr = false;
     state->curtoken = LJJ_TOKEN_STR;
+    return;
+ERROR:
+    state->curtoken = LJJ_TOKEN_INVALID;
+    return;
 }
 
-static void ljj_lex_read_val(ljj_lexstate* state) {
+void ljj_lex_read_val(ljj_lexstate* state) {
     ljj_lexstate_clear_strbuf(state);
     char cur;
     while (true) {
@@ -137,7 +200,7 @@ static void ljj_lex_read_val(ljj_lexstate* state) {
     state->curtoken = LJJ_TOKEN_INVALID;
 }
 
-static void ljj_lex_next(ljj_lexstate* state) {
+void ljj_lex_next(ljj_lexstate* state) {
     ljj_lex_skip_whitespace(state);
     if (state->curtoken == LJJ_TOKEN_EOF) {
         return;
@@ -155,12 +218,12 @@ static void ljj_lex_next(ljj_lexstate* state) {
     ljj_lex_read_val(state);
 }
 
-static jj_jsontype_str ljj_lexstate_getstr(ljj_lexstate* state) {
+jj_jsontype_str ljj_lexstate_getstr(ljj_lexstate* state) {
     // return ujj_clonestr(ljj_lexstate_buf(state), ljj_lexstate_buflen(state));
     return charvec_tostr(state->strbuf);
 }
 
-static bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result) {
+bool ljj_lexstate_getint(ljj_lexstate* state, jj_jsontype_int* result) {
     char* buf = ljj_lexstate_getstr(state);
     if (!buf) return false;
     char* pend;
@@ -251,8 +314,8 @@ jj_jsonobj* ljj_lexstate_parsenode(ljj_lexstate* state,  // NOLINT
     return root;
 }
 
-static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state,  // NOLINT
-                                         const char* name) {
+jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state,  // NOLINT
+                                  const char* name) {
     jj_jsonobj* root = jj_new_jsonobj(name);
     char* propname = NULL;
     while (true) {
@@ -295,8 +358,8 @@ static jj_jsonobj* ljj_lexstate_parseobj(ljj_lexstate* state,  // NOLINT
     return root;
 }
 
-static jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state,  // NOLINT
-                                         const char* name) {
+jj_jsonobj* ljj_lexstate_parsearr(ljj_lexstate* state,  // NOLINT
+                                  const char* name) {
     jj_jsonobj* root = jj_new_jsonarr(name);
     while (true) {
         ljj_lex_next(state);
@@ -378,7 +441,7 @@ void sjj_tostr_jint(charvec* strbuf, jj_jsondata data, int depth,
                     jj_tostr_config* config, bool inarr) {
     if (inarr) sjj_tostr_putindent(strbuf, depth, config);
     char buf[30];
-    int len = sprintf(buf, "%lld", data.intval);
+    int len = sprintf(buf, "%ld", data.intval);
     charvec_appendn(strbuf, buf, len);
 }
 
